@@ -1,0 +1,327 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ApiError, apiFetch } from "@/lib/client";
+import { asRequest, needsApproval, withPending } from "@/lib/approvals";
+import { thisDevice } from "@/lib/change-origin";
+import { isOutdated } from "@/lib/app-version";
+import { idbGet, idbSet } from "@/lib/idb";
+import {
+  applyOps,
+  newLedgerId,
+  normalizeLedger,
+  summarize,
+  type ClientSummary,
+  type Ledger,
+  type LedgerOp,
+  type OpResult,
+} from "@/lib/ledger";
+import type { Me } from "@/lib/roles";
+import { todayISO } from "@/lib/sheet-logic";
+
+const SNAPSHOT_KEY = "ledger-snapshot";
+const QUEUE_KEY = "ledger-queue";
+const RETRY_EVERY_MS = 30_000;
+/** Fetch others' changes this often while the app is open (the notebook's notifications need it). */
+const REFRESH_EVERY_MS = 60_000;
+const BATCH = 50;
+
+/** A change made on this device, waiting to reach the sheet (or refused). */
+export interface Queued {
+  op: LedgerOp;
+  /** "دفعة 500 درهم · محمد…", shown in the list of unsent changes. */
+  label: string;
+  status: "pending" | "failed";
+  error?: string;
+  /** Why it failed: "conflict" = the record changed meanwhile (details: lib/change-origin.ts). */
+  result?: OpResult;
+}
+
+interface Snapshot {
+  ledger: Ledger;
+  fetchedAt: string;
+  /** Who it was loaded for (the app works offline, so it must remember). */
+  me?: Me;
+}
+
+type OpInput = LedgerOp extends infer T ? (T extends LedgerOp ? Omit<T, "opId" | "at"> : never) : never;
+
+export interface LedgerState {
+  /** The logged-in user (null until known). */
+  me: Me | null;
+  /** Ledger with the unsent changes and the sellers' changes waiting for the owner applied (what the screens show). */
+  ledger: Ledger | null;
+  /** Records made or changed by a change waiting for the owner (shown ⏳). */
+  pendingIds: Set<string>;
+  /** Waiting changes that can no longer be applied as they are, with why. */
+  brokenApprovals: Map<string, string>;
+  summaries: ClientSummary[];
+  today: string;
+  online: boolean;
+  syncing: boolean;
+  needsSetup: boolean;
+  pendingCount: number;
+  failed: Queued[];
+  lastSync: string | null;
+  loadError: string;
+  syncError: string;
+  /** Record changes (saved on the device at once, sent to the sheet in order). */
+  run: (label: string, ...ops: OpInput[]) => void;
+  refresh: () => Promise<void>;
+  /** Send a refused change again; an edit is re-based on the sheet's current version. */
+  retry: (opId: string) => void;
+  discard: (opId: string) => void;
+  /** DEV ONLY: the server allows «مسح جميع المعلومات». */
+  devReset: boolean;
+  /** A newer build of the app is online than the one open on this device. */
+  updateReady: boolean;
+  /** DEV ONLY: forget this device's unsent changes and reload from the (emptied) sheet. */
+  clearDevice: () => Promise<void>;
+}
+
+const EMPTY_IDS = new Set<string>();
+const EMPTY_BROKEN = new Map<string, string>();
+
+function isTemporary(e: unknown): boolean {
+  return e instanceof ApiError && (e.status === 0 || e.status === 401 || e.status === 429 || e.status >= 500);
+}
+
+let lastAt = 0;
+/** Strictly increasing time stamps: two changes in the same millisecond stay distinct. */
+function stamp(): string {
+  lastAt = Math.max(Date.now(), lastAt + 1);
+  return new Date(lastAt).toISOString();
+}
+
+export function useLedger(): LedgerState {
+  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [queue, setQueue] = useState<Queued[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [online, setOnline] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [needsSetup, setNeedsSetup] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [syncError, setSyncError] = useState("");
+  const [devReset, setDevReset] = useState(false);
+  const [updateReady, setUpdateReady] = useState(false);
+  const [me, setMe] = useState<Me | null>(null);
+  const [today, setToday] = useState(() => todayISO());
+
+  const snapRef = useRef<Snapshot | null>(null);
+  const queueRef = useRef<Queued[]>([]);
+  const running = useRef(false);
+  // A change made while a sync was running: send it as soon as that sync ends (not 30 s later).
+  const again = useRef(false);
+  const syncRef = useRef<() => Promise<void>>(async () => {});
+  const lastPull = useRef(0);
+
+  const saveSnapshot = useCallback((s: Snapshot) => {
+    snapRef.current = s;
+    setSnapshot(s);
+    void idbSet(SNAPSHOT_KEY, s);
+  }, []);
+
+  const saveQueue = useCallback((q: Queued[]) => {
+    queueRef.current = q;
+    setQueue(q);
+    void idbSet(QUEUE_KEY, q);
+  }, []);
+
+  const pull = useCallback(async () => {
+    const data = await apiFetch<{ ledger?: Ledger; today: string; needsSetup?: boolean; devReset?: boolean; me?: Me; version?: string }>("/api/data");
+    if (isOutdated(data.version)) setUpdateReady(true);
+    lastPull.current = Date.now();
+    setDevReset(Boolean(data.devReset));
+    if (data.me) setMe(data.me);
+    setToday(data.today);
+    if (data.needsSetup) {
+      setNeedsSetup(true);
+      return;
+    }
+    setNeedsSetup(false);
+    saveSnapshot({ ledger: normalizeLedger(data.ledger), fetchedAt: new Date().toISOString(), me: data.me });
+    setLoadError("");
+  }, [saveSnapshot]);
+
+  const sync = useCallback(async () => {
+    if (!navigator.onLine) return;
+    if (running.current) {
+      again.current = true;
+      return;
+    }
+    again.current = false;
+    running.current = true;
+    setSyncing(true);
+    setSyncError("");
+    try {
+      for (;;) {
+        const pending = queueRef.current.filter((q) => q.status === "pending").slice(0, BATCH);
+        if (!pending.length) break;
+        let results: { opId: string; result: OpResult; message?: string }[];
+        try {
+          ({ results } = await apiFetch<{ results: typeof results }>("/api/sync", { method: "POST", body: { ops: pending.map((q) => q.op) } }));
+        } catch (e) {
+          if (isTemporary(e)) {
+            setSyncError(e instanceof Error ? e.message : String(e));
+            return; // keep everything, try again later
+          }
+          // The whole batch was refused (should not happen): mark it so it doesn't block the rest.
+          const msg = e instanceof Error ? e.message : String(e);
+          const ids = new Set(pending.map((q) => q.op.opId));
+          saveQueue(queueRef.current.map((q) => (ids.has(q.op.opId) ? { ...q, status: "failed", error: msg } : q)));
+          continue;
+        }
+        const byId = new Map(results.map((r) => [r.opId, r]));
+        // Accepted changes go into the local copy now, as they leave the queue: until the fresh
+        // copy arrives (pull below) the screen must not go back to the old version, or an edit
+        // made in that moment would be based on it and refused as «changed from another device».
+        const accepted = queueRef.current.filter((q) => {
+          const r = byId.get(q.op.opId);
+          return r && (r.result === "ok" || r.result === "already");
+        });
+        if (accepted.length && snapRef.current) {
+          saveSnapshot({ ...snapRef.current, ledger: applyOps(snapRef.current.ledger, accepted.map((q) => q.op)) });
+        }
+        saveQueue(
+          queueRef.current.flatMap((q) => {
+            const r = byId.get(q.op.opId);
+            if (!r) return [q];
+            if (r.result === "ok" || r.result === "already") return [];
+            return [{ ...q, status: "failed" as const, result: r.result, error: r.message || (r.result === "conflict" ? "تعارض" : "مرفوض") }];
+          }),
+        );
+      }
+      await pull();
+    } catch (e) {
+      setSyncError(e instanceof Error ? e.message : String(e));
+      if (!snapRef.current) setLoadError(e instanceof Error ? e.message : String(e));
+    } finally {
+      running.current = false;
+      setSyncing(false);
+      if (again.current && queueRef.current.some((q) => q.status === "pending")) setTimeout(() => void syncRef.current(), 0);
+    }
+  }, [pull, saveQueue, saveSnapshot]);
+  syncRef.current = sync;
+
+  // Start: show what is on the device at once, then sync.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [snap, saved] = await Promise.all([idbGet<Snapshot>(SNAPSHOT_KEY), idbGet<Queued[]>(QUEUE_KEY)]);
+      if (cancelled) return;
+      if (snap) {
+        // Saved by an older version of the app: add the lists it didn't have.
+        const fixed = { ...snap, ledger: normalizeLedger(snap.ledger) };
+        snapRef.current = fixed;
+        setSnapshot(fixed);
+        if (snap.me) setMe(snap.me);
+      }
+      queueRef.current = saved ?? [];
+      setQueue(queueRef.current);
+      setOnline(navigator.onLine);
+      setLoaded(true);
+      if (navigator.onLine) await sync();
+      else if (!snap) setLoadError("ما كاينش الأنترنيت، وهادي أول مرة كتحل فيها التطبيق فهاد الجهاز. حلو مرة وحدة بالأنترنيت.");
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sync]);
+
+  useEffect(() => {
+    const goOnline = () => {
+      setOnline(true);
+      void sync();
+    };
+    const goOffline = () => setOnline(false);
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      setToday(todayISO());
+      if (navigator.onLine) void sync();
+    };
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    document.addEventListener("visibilitychange", onVisible);
+    const timer = setInterval(() => {
+      if (!navigator.onLine) return;
+      if (queueRef.current.some((q) => q.status === "pending") || Date.now() - lastPull.current >= REFRESH_EVERY_MS) void sync();
+    }, RETRY_EVERY_MS);
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+      document.removeEventListener("visibilitychange", onVisible);
+      clearInterval(timer);
+    };
+  }, [sync]);
+
+  const base = useMemo(() => {
+    if (!loaded || !snapshot) return null;
+    return applyOps(snapshot.ledger, queue.filter((q) => q.status === "pending").map((q) => q.op));
+  }, [loaded, snapshot, queue]);
+  const view = useMemo(() => (base ? withPending(base) : null), [base]);
+  const ledger = view?.ledger ?? null;
+
+  const summaries = useMemo(() => (ledger ? summarize(ledger, today) : []), [ledger, today]);
+
+  return {
+    me,
+    ledger,
+    pendingIds: view?.pendingIds ?? EMPTY_IDS,
+    brokenApprovals: view?.broken ?? EMPTY_BROKEN,
+    summaries,
+    today,
+    online,
+    syncing,
+    needsSetup,
+    pendingCount: queue.filter((q) => q.status === "pending").length,
+    failed: queue.filter((q) => q.status === "failed"),
+    lastSync: snapshot?.fetchedAt ?? null,
+    loadError: ledger ? "" : loadError,
+    syncError,
+    run: (label, ...ops) => {
+      // Who and where (the server re-stamps the account): shown if this change ever conflicts.
+      const origin = { by: me?.name ?? "", device: thisDevice() };
+      const items = ops.map((o) => {
+        const op = { ...o, opId: newLedgerId("O"), at: stamp(), ...origin } as LedgerOp;
+        // A seller's credit change waits for the owner (the server does the same).
+        const wait = ledger ? needsApproval(me, op, ledger) : false;
+        return { op: wait ? asRequest(op) : op, label: wait ? `⏳ ${label}` : label, status: "pending" as const };
+      });
+      saveQueue([...queueRef.current, ...items]);
+      void sync();
+    },
+    refresh: async () => {
+      if (navigator.onLine) await sync();
+    },
+    retry: (opId) => {
+      const current = snapRef.current?.ledger;
+      saveQueue(
+        queueRef.current.map((q) => {
+          if (q.op.opId !== opId) return q;
+          const op = { ...q.op } as LedgerOp;
+          // Re-base an edit on what the sheet holds now (the user chose to apply it anyway).
+          if (current && "base" in op) {
+            const list = op.type.startsWith("client")
+              ? current.clients
+              : op.type.startsWith("purchase")
+                ? current.purchases
+                : op.type.startsWith("stock")
+                  ? current.stock
+                  : current.payments;
+            const rec = list.find((r) => r.id === op.id);
+            if (rec) op.base = rec.updatedAt;
+          }
+          return { ...q, op, status: "pending", error: undefined };
+        }),
+      );
+      void sync();
+    },
+    discard: (opId) => saveQueue(queueRef.current.filter((q) => q.op.opId !== opId)),
+    devReset,
+    updateReady,
+    clearDevice: async () => {
+      saveQueue([]);
+      await pull();
+    },
+  };
+}

@@ -1,0 +1,755 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { freshShopCode, isEan13, isShopCode, newShopCode, shopCodeOf as shopCodeOfItem, usedCodes } from "@/lib/barcode";
+import { downloadStickerPng } from "@/lib/barcode-image";
+import { money } from "@/lib/format";
+import { CONDITIONS, newLedgerId, nowParts, productCodes, STICKER_LOOK_KEY, type Condition, type StockItem } from "@/lib/ledger";
+import { displayDate, SHOP } from "@/lib/receipt";
+import { currentSeller, findByCode, normalizeText, parseCodes, round2, searchStock } from "@/lib/shop";
+import { fixAzertyDigits } from "@/lib/scanner-input";
+import { can, seesCost } from "@/lib/roles";
+import { BarcodeScanner } from "./BarcodeScanner";
+import { CategoryForm } from "./CategoryForm";
+import { CategoryIcon } from "./CategoryIcon";
+import { LabelPrint } from "./LabelPrint";
+import { useLabelSetup } from "./LabelSetup";
+import { EyeButton, shown, useHiddenAmount } from "./HideAmount";
+import { useScannerInput } from "./useScannerInput";
+import { Modal } from "./Modal";
+import type { LedgerState } from "./useLedger";
+import { Confirm, Field, parseAmount } from "./ui";
+
+const LOW = 1;
+const REASONS = ["وصلات السلعة", "جرد (تصحيح)", "خاسرة / ضايعة", "رجعات من الزبون", "رجعت للمورد"];
+
+type Sub =
+  | { kind: "add"; code?: string }
+  | { kind: "edit"; item: StockItem }
+  | { kind: "adjust"; item: StockItem; scanned?: boolean; newCode?: string }
+  | { kind: "unknown-code"; code: string }
+  | { kind: "delete"; item: StockItem }
+  | { kind: "categories" }
+  | { kind: "labels"; item?: StockItem }
+  | { kind: "category"; name?: string }
+  | null;
+
+export function StockView({ data, onToast }: { data: LedgerState; onToast: (msg: string) => void }) {
+  const ledger = data.ledger!;
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("");
+  const [onlyLow, setOnlyLow] = useState(false);
+  const [sub, setSub] = useState<Sub>(null);
+  // Category chips on a phone: one row to swipe, faded on the side where more chips are hidden.
+  const chipsRef = useRef<HTMLDivElement>(null);
+  const [chipsMore, setChipsMore] = useState({ start: false, end: false });
+  function measureChips() {
+    const el = chipsRef.current;
+    if (!el) return;
+    // RTL: scrollLeft is 0 at the start (right) and negative towards the end (left).
+    const done = Math.abs(el.scrollLeft);
+    const left = el.scrollWidth - el.clientWidth - done;
+    const next = { start: done > 2, end: left > 2 };
+    setChipsMore((o) => (o.start === next.start && o.end === next.end ? o : next));
+  }
+  useEffect(() => {
+    measureChips();
+    const el = chipsRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(measureChips);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ledger.categories.length]);
+  // The camera stays open behind the windows a scan opens, and reads again when they close.
+  const [scanOpen, setScanOpen] = useState(false);
+
+  const viewRef = useRef<HTMLDivElement>(null);
+  const fullStock = can(data.me, "stock");
+  const cost = seesCost(data.me);
+  const [hideValue, toggleValue] = useHiddenAmount("stock-value");
+
+  /** Scanned (camera or USB scanner): more of a known product, or a new card with the code. */
+  function scanned(code: string) {
+    const found = findByCode(ledger.stock, code);
+    setQuery("");
+    // Unknown code: a new product, or a known one from a new supplier.
+    setSub(found ? { kind: "adjust", item: found, scanned: true } : { kind: "unknown-code", code });
+  }
+  useScannerInput(scanned, viewRef);
+
+  const list = useMemo(() => {
+    let items = query.trim() ? searchStock(ledger.stock, query, 500) : [...ledger.stock].sort((a, b) => a.item.localeCompare(b.item, "ar"));
+    if (category) items = items.filter((s) => s.category === category);
+    if (onlyLow) items = items.filter((s) => s.quantity <= LOW);
+    return items;
+  }, [ledger.stock, query, category, onlyLow]);
+
+  const low = ledger.stock.filter((s) => s.quantity <= LOW).length;
+  const value = round2(ledger.stock.reduce((t, s) => t + Math.max(0, s.quantity) * s.buyPrice, 0));
+  const units = ledger.stock.reduce((t, s) => t + Math.max(0, s.quantity), 0);
+
+  return (
+    <div className="view" ref={viewRef}>
+      <section className="summary" aria-label="ملخص المخزون">
+        <div className="stat">
+          <span className="stat-label">السلع</span>
+          <span className="stat-value">{ledger.stock.length}</span>
+          <span className="stat-sub">{units} وحدة</span>
+        </div>
+        <div className="stat alert-stat">
+          <span className="stat-label">قليلة ولا سالات</span>
+          <span className="stat-value">{low}</span>
+          <span className="stat-sub">{LOW} ولا قل</span>
+        </div>
+        {data.me?.role === "owner" && (
+          <div className="stat">
+            <span className="stat-label">
+              قيمة المخزون <EyeButton hidden={hideValue} onToggle={toggleValue} what="قيمة المخزون" />
+            </span>
+            <span className="stat-value">{shown(hideValue, money(value))}</span>
+            <span className="stat-sub">بثمن الشراء</span>
+          </div>
+        )}
+      </section>
+
+      <div className="actions-row in-flow four">
+        <button type="button" className="btn" onClick={() => setSub({ kind: "categories" })}>
+          🗂️ الفئات
+        </button>
+        <button type="button" className="btn" onClick={() => setScanOpen(true)}>
+          📷 سكاني
+        </button>
+        <button type="button" className="btn" onClick={() => setSub({ kind: "labels" })}>
+          🏷️ باركود
+        </button>
+        <button type="button" className="btn primary" onClick={() => setSub({ kind: "add" })}>
+          ＋ سلعة جديدة
+        </button>
+      </div>
+
+      <div className="search-row">
+        <label className="visually-hidden" htmlFor="stock-search">
+          قلب فالمخزون
+        </label>
+        <input
+          id="stock-search"
+          type="search"
+          className="search"
+          placeholder="قلب بالسمية، الفئة ولا الكود…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter") return;
+            // A code scanned into the search field: same as scanning with the camera.
+            const code = fixAzertyDigits(query);
+            if (findByCode(ledger.stock, code) || (/^[\w-]{6,}$/.test(code) && !list.length)) {
+              e.preventDefault();
+              scanned(code);
+            }
+          }}
+        />
+        <button type="button" className={`btn ${onlyLow ? "selected" : ""}`} aria-pressed={onlyLow} onClick={() => setOnlyLow((x) => !x)}>
+          ⚠️ قليلة
+        </button>
+      </div>
+      <div className={`chips cat-chips${chipsMore.start ? " more-start" : ""}${chipsMore.end ? " more-end" : ""}`} ref={chipsRef} onScroll={measureChips} role="group" aria-label="الفئة">
+        <button type="button" className={`chip ${category === "" ? "on" : ""}`} aria-pressed={category === ""} onClick={() => setCategory("")}>
+          الكل
+        </button>
+        {ledger.categories.map((c) => (
+          <button
+            key={c.name}
+            type="button"
+            className={`chip chip-icon ${category === c.name ? "on" : ""}`}
+            aria-pressed={category === c.name}
+            onClick={(e) => {
+              setCategory(c.name);
+              e.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+            }}
+          >
+            <CategoryIcon category={c} className="chip-emoji" />
+            {c.name}
+          </button>
+        ))}
+      </div>
+
+      <p className="result-count muted">{list.length} سلعة</p>
+      {list.length === 0 ? (
+        <p className="empty">{ledger.stock.length ? "ما لقينا حتى سلعة." : "المخزون خاوي. زيد السلع اللي عندك باش تبيعهم بسرعة وتعرف الربح."}</p>
+      ) : (
+        <ul className="stock-list">
+          {list.slice(0, 300).map((s) => (
+            <li key={s.id} className={`stock-row ${s.quantity <= 0 ? "out" : s.quantity <= LOW ? "low" : ""}`}>
+              <button
+                type="button"
+                className="stock-open"
+                // The stock manager adds products and deliveries; changing a product needs full stock rights.
+                onClick={() => (fullStock ? setSub({ kind: "edit", item: s }) : setSub({ kind: "adjust", item: s }))}
+                aria-label={fullStock ? `تعديل ${s.item}` : `زيد الكمية ديال ${s.item}`}
+              >
+                <span className="stock-name">
+                  <strong>{s.item}</strong>
+                  <span className="muted small">
+                    {s.category || "بلا فئة"} · {s.condition}
+                    {productCodes(s).length > 1 ? ` · 🏷️ ${productCodes(s).length} أكواد` : s.serial ? ` · ${s.serial}` : ""}
+                  </span>
+                </span>
+                <span className="stock-price">
+                  <span className="amount">{money(s.sellPrice)}</span>
+                  {cost && <span className="muted small">شراء {money(s.buyPrice)}</span>}
+                </span>
+              </button>
+              <button type="button" className={`qty-pill ${s.quantity <= 0 ? "out" : s.quantity <= LOW ? "low" : ""}`} onClick={() => setSub({ kind: "adjust", item: s })} aria-label={`الكمية ديال ${s.item}: ${s.quantity}. بدل`}>
+                <span dir="ltr">{s.quantity}</span>
+                <span className="small">±</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {(sub?.kind === "add" || sub?.kind === "edit") && (
+        <StockForm
+          data={data}
+          item={sub.kind === "edit" ? sub.item : undefined}
+          code={sub.kind === "add" ? sub.code : undefined}
+          onClose={() => setSub(null)}
+          onDelete={sub.kind === "edit" ? () => setSub({ kind: "delete", item: sub.item }) : undefined}
+          onLabels={sub.kind === "edit" ? () => setSub({ kind: "labels", item: sub.item }) : undefined}
+          onSaved={(msg, printItem) => {
+            onToast(msg);
+            setSub(printItem ? { kind: "labels", item: printItem } : null);
+          }}
+        />
+      )}
+      {sub?.kind === "adjust" && <AdjustForm data={data} item={sub.item} canRemove={fullStock} scanned={sub.scanned} newCode={sub.newCode} onClose={() => setSub(null)} onSaved={onToast} />}
+      {sub?.kind === "unknown-code" && (
+        <UnknownCode
+          stock={ledger.stock}
+          code={sub.code}
+          onClose={() => setSub(null)}
+          onNew={() => setSub({ kind: "add", code: sub.code })}
+          onAttach={(item) => setSub({ kind: "adjust", item, newCode: sub.code })}
+        />
+      )}
+      {sub?.kind === "labels" && <LabelPrint data={data} preselect={sub.item} onClose={() => setSub(null)} onToast={onToast} />}
+      {scanOpen && (
+        <BarcodeScanner
+          title="📷 سكاني السلعة"
+          continuous
+          paused={sub !== null}
+          onClose={() => setScanOpen(false)}
+          onResult={(code) => {
+            const found = findByCode(ledger.stock, code);
+            scanned(code);
+            return found ? { ok: true, text: found.item } : { ok: false, text: "كود جديد" };
+          }}
+        />
+      )}
+      {sub?.kind === "categories" && (
+        <Modal
+          title="🗂️ الفئات"
+          onClose={() => setSub(null)}
+          footer={
+            <button type="button" className="btn primary" onClick={() => setSub({ kind: "category" })}>
+              ＋ فئة جديدة
+            </button>
+          }
+        >
+          <ul className="cat-list">
+            {ledger.categories.map((c) => (
+              <li key={c.name}>
+                <button type="button" onClick={() => setSub({ kind: "category", name: c.name })} aria-label={`تعديل ${c.name}`}>
+                  <CategoryIcon category={c} className="cat-list-icon" />
+                  <span className="cat-list-name">
+                    <strong>{c.name}</strong>
+                    <span className="muted small">
+                      {ledger.stock.filter((s) => s.category === c.name).length} سلعة
+                      {c.marginTarget ? ` · هامش ${c.marginTarget}%` : ""}
+                    </span>
+                  </span>
+                  <span className="muted small">تعديل</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Modal>
+      )}
+      {sub?.kind === "category" && (
+        <CategoryForm
+          data={data}
+          category={ledger.categories.find((c) => c.name === sub.name)}
+          onClose={() => setSub({ kind: "categories" })}
+          onSaved={(name) => {
+            onToast(sub.name ? "تبدلات الفئة" : `تزادت الفئة «${name}»`);
+            setSub({ kind: "categories" });
+          }}
+        />
+      )}
+      {sub?.kind === "delete" && (
+        <Confirm
+          title="حذف السلعة"
+          confirmLabel="إيه، احذف"
+          danger
+          onClose={() => setSub(null)}
+          onConfirm={() => {
+            data.run(`حذف سلعة · ${sub.item.item}`, { type: "stock.delete", id: sub.item.id });
+            onToast("تحذفات السلعة من المخزون");
+            setSub(null);
+          }}
+        >
+          <p className="lead">
+            نحيدو «{sub.item.item}» من المخزون؟ المبيعات ديالها كيبقاو فالتقارير.
+          </p>
+        </Confirm>
+      )}
+    </div>
+  );
+}
+
+function StockForm({
+  data,
+  item,
+  code,
+  onClose,
+  onSaved,
+  onDelete,
+  onLabels,
+}: {
+  data: LedgerState;
+  item?: StockItem;
+  /** Scanned before opening the form. */
+  code?: string;
+  onClose: () => void;
+  /** `printItem`: open the sticker window for this new product. */
+  onSaved: (msg: string, printItem?: StockItem) => void;
+  onDelete?: () => void;
+  /** Print the shop's barcode stickers for this product. */
+  onLabels?: () => void;
+}) {
+  const ledger = data.ledger!;
+  // The sticker settings of this device: the downloaded image looks like the printed sticker.
+  const [labelSetup] = useLabelSetup(ledger.settings.find((x) => x.key === STICKER_LOOK_KEY));
+  // The new product's id, known before saving so its shop barcode can be made from it.
+  const [newId] = useState(() => newLedgerId("I"));
+  // A new product saved without any code: ask to make the shop's barcode first.
+  const [askBarcode, setAskBarcode] = useState(false);
+  const [v, setV] = useState({
+    item: item?.item ?? "",
+    category: item?.category ?? ledger.categories[0]?.name ?? "",
+    condition: (item?.condition ?? "جديد") as Condition,
+    buyPrice: item ? String(item.buyPrice) : "",
+    sellPrice: item ? String(item.sellPrice) : "",
+    quantity: "1",
+    codes: item ? productCodes(item).join("\n") : (code ?? ""),
+    notes: item?.notes ?? "",
+  });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const set = (k: keyof typeof v) => (value: string) => {
+    setV((o) => ({ ...o, [k]: value }));
+    setErrors((e) => ({ ...e, [k]: "" }));
+  };
+  const [addingCategory, setAddingCategory] = useState(false);
+  const categoryName = v.category;
+  const target = ledger.categories.find((c) => c.name === categoryName)?.marginTarget ?? 0;
+  const buy = parseAmount(v.buyPrice || "0");
+  const suggested = buy > 0 && target > 0 ? Math.ceil((buy * (1 + target / 100)) / 10) * 10 : 0;
+  const [scanning, setScanning] = useState(false);
+  const codeList = parseCodes(v.codes).map(fixAzertyDigits);
+  const sameCode = codeList
+    .map((c) => ({ c, other: ledger.stock.find((s) => s.id !== item?.id && productCodes(s).some((x) => x.toLowerCase() === c.toLowerCase())) }))
+    .find((x) => x.other);
+  const duplicate = !item && v.item.trim() && ledger.stock.find((s) => normalizeText(s.item) === normalizeText(v.item) && s.condition === v.condition);
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    const err: Record<string, string> = {};
+    const sell = parseAmount(v.sellPrice || String(suggested || ""));
+    const qty = Number(v.quantity);
+    if (!v.item.trim()) err.item = "السمية ضرورية";
+    if (!(buy >= 0) || (v.buyPrice && !Number.isFinite(parseAmount(v.buyPrice)))) err.buyPrice = "الثمن غير صحيح";
+    if (!(sell > 0)) err.sellPrice = "ثمن البيع ضروري";
+    else if (buy > 0 && sell < buy) err.sellPrice = "ثمن البيع تحت ثمن الشراء";
+    if (!item && (!Number.isInteger(qty) || qty < 0)) err.quantity = "الكمية غير صحيحة";
+    if (sameCode) err.codes = `الكود «${sameCode.c}» مستعمل ديجا فـ «${sameCode.other!.item}»`;
+    setErrors(err);
+    if (Object.keys(err).length) return;
+    if (!item && !codeList.length) return setAskBarcode(true);
+    save(codeList);
+  }
+
+  // Saved once: a double tap on «حفظ» must not send the same edit twice (the 2nd would be refused).
+  const saved = useRef(false);
+
+  /** Saves the product with these codes; `print` opens its stickers after a new product. */
+  function save(codes: string[], print = false) {
+    if (saved.current) return;
+    saved.current = true;
+    const sell = parseAmount(v.sellPrice || String(suggested || ""));
+    const at = new Date().toISOString();
+    const fields = { item: v.item.trim(), category: categoryName, condition: v.condition, buyPrice: buy || 0, sellPrice: sell, serial: codes[0] ?? "", codes: codes.slice(1), notes: v.notes.trim() };
+    if (item) {
+      data.run(`تعديل سلعة · ${fields.item}`, { type: "stock.update", id: item.id, base: item.updatedAt, patch: fields });
+      return onSaved("تبدلات السلعة");
+    }
+    const added: StockItem = { id: newId, ...fields, quantity: Number(v.quantity), createdAt: at, updatedAt: at };
+    data.run(`سلعة جديدة · ${fields.item}`, { type: "stock.add", item: added });
+    onSaved(codes.some(isShopCode) ? "تزادت السلعة بالباركود ديال المحل" : "تزادت السلعة فالمخزون", print ? added : undefined);
+  }
+
+  // The shop barcode in the codes box, if any; «باركود جديد» puts one there (or a new number in its place).
+  const taken = usedCodes(ledger.stock.filter((s) => s.id !== item?.id));
+  const shopCode = codeList.find(isShopCode);
+  // The barcode to save as an image: the shop's, else a supplier's EAN-13.
+  const imageCode = shopCode ?? codeList.find(isEan13);
+  function makeShopCode() {
+    const lines = parseCodes(v.codes).map(fixAzertyDigits);
+    const fresh = shopCode || item ? freshShopCode(new Set([...taken, ...lines.map((x) => x.toLowerCase())])) : newShopCode(newId, taken);
+    const at = lines.findIndex(isShopCode);
+    const next = at < 0 ? [...lines, fresh] : lines.map((c, i) => (i === at ? fresh : c));
+    set("codes")(next.join("\n"));
+  }
+  const saveWithNewCode = (print: boolean) => save([...codeList, newShopCode(newId, taken)], print);
+
+  return (
+    <Modal
+      title={item ? `تعديل: ${item.item}` : "سلعة جديدة فالمخزون"}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="btn" onClick={onClose}>
+            إلغاء
+          </button>
+          <button type="submit" form="stock-form" className="btn primary">
+            {item ? "حفظ" : "زيد"}
+          </button>
+        </>
+      }
+    >
+      <form id="stock-form" className="form-grid" noValidate onSubmit={submit}>
+        {code && !item && (
+          <p className="alert info wide">
+            <span>
+              ✓ تسكانا الكود <bdi dir="ltr">{code}</bdi> · هاد السلعة جديدة، كمل المعلومات ديالها.
+            </span>
+          </p>
+        )}
+        <Field id="st-item" label="السلعة" error={errors.item} hint="مثلا: iPhone 11 64GB، ثلاجة Samsung 400L" wide>
+          <input id="st-item" value={v.item} onChange={(e) => set("item")(e.target.value)} autoFocus={!item} />
+        </Field>
+        {duplicate && <p className="alert warn wide">كاينة ديجا «{duplicate.item}» فالمخزون ({duplicate.quantity}). بدل الكمية ديالها عوض ما تزيد وحدة جديدة.</p>}
+        <Field id="st-category" label="الفئة">
+          <select
+            id="st-category"
+            value={v.category}
+            onChange={(e) => (e.target.value === "__new" ? setAddingCategory(true) : set("category")(e.target.value))}
+          >
+            {ledger.categories.map((c) => (
+              <option key={c.name} value={c.name}>
+                {c.name}
+              </option>
+            ))}
+            <option value="__new">＋ فئة جديدة…</option>
+          </select>
+        </Field>
+        <Field id="st-condition" label="الحالة">
+          <select id="st-condition" value={v.condition} onChange={(e) => set("condition")(e.target.value)}>
+            {CONDITIONS.map((c) => (
+              <option key={c}>{c}</option>
+            ))}
+          </select>
+        </Field>
+        {/* Without cost visibility the price can be entered for a new product, never read back. */}
+        {(!item || seesCost(data.me)) && (
+          <Field id="st-buyPrice" label="ثمن الشراء" error={errors.buyPrice} hint="ديال الوحدة، درهم">
+            <input id="st-buyPrice" inputMode="decimal" dir="ltr" value={v.buyPrice} onChange={(e) => set("buyPrice")(e.target.value)} />
+          </Field>
+        )}
+        <Field id="st-sellPrice" label="ثمن البيع" error={errors.sellPrice} hint={suggested ? `اقتراح بهامش ${target}%: ${money(suggested)}` : "درهم"}>
+          <input id="st-sellPrice" inputMode="decimal" dir="ltr" placeholder={suggested ? String(suggested) : ""} value={v.sellPrice} onChange={(e) => set("sellPrice")(e.target.value)} />
+        </Field>
+        {!item && (
+          <Field id="st-quantity" label="الكمية" error={errors.quantity}>
+            <input id="st-quantity" inputMode="numeric" dir="ltr" value={v.quantity} onChange={(e) => set("quantity")(e.target.value.replace(/\D/g, ""))} />
+          </Field>
+        )}
+        <Field
+          id="st-codes"
+          label="الأكواد (QR / باركود / S/N)"
+          error={errors.codes}
+          hint={code && !item ? "✓ تسكانا · زيد أكواد موردين آخرين إلا كانو" : "اختياري · كل مورد عندو كود: وحدة فكل سطر · سكاني ولا كتب"}
+          wide
+        >
+          <div className="code-row">
+            <textarea id="st-codes" dir="ltr" rows={2} value={v.codes} onChange={(e) => set("codes")(e.target.value)} />
+            <button type="button" className="btn" onClick={() => setScanning(true)} aria-label="سكاني كود بالكاميرا">
+              📷
+            </button>
+          </div>
+          <div className="code-tools">
+            <button type="button" className="link-btn" onClick={makeShopCode}>
+              {shopCode ? "🔄 رقم جديد للباركود" : "🏷️ صاوب باركود ديال المحل"}
+            </button>
+            {imageCode && (
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => {
+                  let withPrice = true;
+                  try {
+                    withPrice = localStorage.getItem("label-price") !== "no";
+                  } catch {}
+                  const sell = parseAmount(v.sellPrice);
+                  void downloadStickerPng(imageCode, labelSetup, { shop: SHOP.name, name: v.item.trim() || undefined, price: withPrice && sell > 0 ? money(sell) : undefined });
+                }}
+              >
+                ⬇️ تحميل الباركود (صورة)
+              </button>
+            )}
+          </div>
+          {shopCode && item && shopCodeOfItem(item) && shopCodeOfItem(item) !== shopCode && (
+            <span className="field-hint warn-text">الملصقات القديمة ديال هاد السلعة ما غاديش يبقاو يتسكانا: طبع جداد.</span>
+          )}
+        </Field>
+        <Field id="st-notes" label="ملاحظات" wide>
+          <input id="st-notes" value={v.notes} onChange={(e) => set("notes")(e.target.value)} />
+        </Field>
+        {item && (
+          <p className="muted small wide">
+            الكمية: {item.quantity} (بدلها بـ ± فاللائحة) · تزادت {displayDate(item.createdAt.slice(0, 10))}
+          </p>
+        )}
+        {item && onLabels && (
+          <button type="button" className="btn wide" onClick={onLabels}>
+            🏷️ طبع باركود المحل
+          </button>
+        )}
+        {item && onDelete && (
+          <button type="button" className="btn danger-ghost wide" onClick={onDelete}>
+            حذف من المخزون
+          </button>
+        )}
+      </form>
+      {askBarcode && (
+        <Modal
+          title="🏷️ ما زدتيش باركود"
+          onClose={() => setAskBarcode(false)}
+          footer={
+            <>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => {
+                  setAskBarcode(false);
+                  save(codeList);
+                }}
+              >
+                لا، بلا باركود
+              </button>
+              <button type="button" className="btn primary" onClick={() => saveWithNewCode(false)}>
+                صاوب باركود
+              </button>
+            </>
+          }
+        >
+          <p className="lead">نصاوبو باركود ديال المحل لـ «{v.item.trim()}»؟</p>
+          <p className="muted small">
+            الرقم غادي يكون <bdi dir="ltr">{newShopCode(newId, taken)}</bdi>. من بعد تقدر تطبع الملصقات ولا تحملو كصورة.
+          </p>
+          <button type="button" className="btn wide" onClick={() => saveWithNewCode(true)}>
+            🖨️ صاوب باركود وطبع الملصقات دابا
+          </button>
+        </Modal>
+      )}
+      {addingCategory && (
+        <CategoryForm
+          data={data}
+          onClose={() => setAddingCategory(false)}
+          onSaved={(name) => {
+            set("category")(name);
+            setAddingCategory(false);
+          }}
+        />
+      )}
+      {scanning && (
+        <BarcodeScanner
+          continuous
+          onClose={() => setScanning(false)}
+          onResult={(c) => {
+            // The camera stays open: each code goes on its own line (twice = ignored).
+            if (parseCodes(v.codes).some((x) => x.toLowerCase() === c.toLowerCase())) return { ok: false, text: "كاين ديجا فاللائحة" };
+            const other = ledger.stock.find((s) => s.id !== item?.id && productCodes(s).some((x) => x.toLowerCase() === c.toLowerCase()));
+            setV((o) => ({ ...o, codes: o.codes.trim() ? `${o.codes.trim()}\n${c}` : c }));
+            return other ? { ok: false, text: `مستعمل فـ «${other.item}»` } : { ok: true, text: "تزاد" };
+          }}
+        />
+      )}
+    </Modal>
+  );
+}
+
+function AdjustForm({
+  data,
+  item,
+  scanned,
+  newCode,
+  canRemove = true,
+  onClose,
+  onSaved,
+}: {
+  data: LedgerState;
+  item: StockItem;
+  /** Taking stock out (losses, returns to the supplier) needs full stock rights. */
+  canRemove?: boolean;
+  scanned?: boolean;
+  /** A new supplier's code, added to the product with this delivery. */
+  newCode?: string;
+  onClose: () => void;
+  onSaved: (msg: string) => void;
+}) {
+  const [sign, setSign] = useState<1 | -1>(1);
+  const [amount, setAmount] = useState("1");
+  const [reason, setReason] = useState(REASONS[0]);
+  const [error, setError] = useState("");
+  const qty = Number(amount);
+  const history = data.ledger!.moves.filter((m) => m.stockId === item.id).slice(-5).reverse();
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!Number.isInteger(qty) || qty < 0 || (qty === 0 && !newCode)) return setError("الكمية غير صحيحة");
+    const delta = sign * qty;
+    data.run(`${delta > 0 ? "+" : ""}${delta} · ${item.item}`, {
+      type: "stock.adjust",
+      move: {
+        id: newLedgerId("M"),
+        stockId: item.id,
+        date: nowParts().date,
+        delta,
+        reason: newCode ? `${reason} · مورد جديد` : reason,
+        seller: currentSeller(),
+        createdAt: new Date().toISOString(),
+        ...(newCode ? { codesIn: [newCode] } : {}),
+      },
+    });
+    onSaved(`الكمية ولات ${item.quantity + delta}`);
+    onClose();
+  }
+
+  return (
+    <Modal
+      title={`الكمية: ${item.item}`}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="btn" onClick={onClose}>
+            إلغاء
+          </button>
+          <button type="submit" form="adjust-form" className="btn primary">
+            حفظ
+          </button>
+        </>
+      }
+    >
+      <form id="adjust-form" className="form-grid" noValidate onSubmit={submit}>
+        {scanned && <p className="alert info wide">✓ هاد السلعة كاينة فالمخزون. شحال وصلات منها؟</p>}
+        {newCode && (
+          <p className="alert info wide">
+            <span>
+              ✓ الكود <bdi dir="ltr">{newCode}</bdi> غادي يتزاد لـ «{item.item}». شحال وصلات من هاد المورد؟
+            </span>
+          </p>
+        )}
+        <p className="lead wide">
+          دابا: <strong>{item.quantity}</strong> ← من بعد: <strong>{Number.isInteger(qty) && qty > 0 ? item.quantity + sign * qty : "—"}</strong>
+        </p>
+        <div className="segmented wide-seg wide" role="group" aria-label="زيد ولا نقص">
+          <button type="button" className={sign === 1 ? "on" : ""} aria-pressed={sign === 1} onClick={() => setSign(1)}>
+            ＋ زيد
+          </button>
+          {canRemove && (
+            <button type="button" className={sign === -1 ? "on" : ""} aria-pressed={sign === -1} onClick={() => setSign(-1)}>
+              − نقص
+            </button>
+          )}
+        </div>
+        <Field id="adj-amount" label="شحال" error={error}>
+          <input id="adj-amount" inputMode="numeric" dir="ltr" value={amount} onChange={(e) => setAmount(e.target.value.replace(/\D/g, ""))} autoFocus />
+        </Field>
+        <Field id="adj-reason" label="السبب">
+          <select id="adj-reason" value={reason} onChange={(e) => setReason(e.target.value)}>
+            {REASONS.map((r) => (
+              <option key={r}>{r}</option>
+            ))}
+          </select>
+        </Field>
+        <p className="muted small wide">البيع كينقص المخزون بوحدو. هنا غير ملي توصل السلعة ولا فالجرد.</p>
+        {history.length > 0 && (
+          <ul className="plain-list wide small">
+            {history.map((m) => (
+              <li key={m.id}>
+                <span dir="ltr">{m.delta > 0 ? `+${m.delta}` : m.delta}</span> · {m.reason} · {displayDate(m.date)}
+                {m.seller ? ` · ${m.seller}` : ""}
+                {m.codesIn?.length ? (
+                  <>
+                    {" · 🏷️ "}
+                    <bdi dir="ltr">{m.codesIn.join(", ")}</bdi>
+                  </>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </form>
+    </Modal>
+  );
+}
+
+/** A code that leads to no product: a new product, or a known one from a new supplier. */
+function UnknownCode({
+  stock,
+  code,
+  onClose,
+  onNew,
+  onAttach,
+}: {
+  stock: StockItem[];
+  code: string;
+  onClose: () => void;
+  onNew: () => void;
+  onAttach: (item: StockItem) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const results = query.trim() ? searchStock(stock, query, 20) : [...stock].sort((a, b) => a.item.localeCompare(b.item, "ar")).slice(0, 20);
+  return (
+    <Modal title="كود جديد" onClose={onClose}>
+      <p className="lead">
+        الكود <bdi dir="ltr">{code}</bdi> ما مربوط بحتى سلعة.
+      </p>
+      <button type="button" className="btn primary block" onClick={onNew}>
+        ＋ سلعة جديدة بهاد الكود
+      </button>
+      {stock.length > 0 && (
+        <>
+          <p className="section-title">ولا سلعة كاينة من مورد جديد؟ اختارها:</p>
+          <input type="search" className="search" placeholder="قلب على السلعة…" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="قلب على السلعة" />
+          <ul className="cat-list">
+            {results.map((s) => (
+              <li key={s.id}>
+                <button type="button" onClick={() => onAttach(s)}>
+                  <span className="cat-list-name">
+                    <strong>{s.item}</strong>
+                    <span className="muted small">
+                      {s.category} · متوفر: {s.quantity}
+                      {productCodes(s).length ? ` · 🏷️ ${productCodes(s).length}` : ""}
+                    </span>
+                  </span>
+                  <span className="muted small">ربط ←</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </Modal>
+  );
+}

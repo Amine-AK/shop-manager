@@ -1,0 +1,197 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { agoText, downloadFile, fetchBackup, lastBackupAt, markBackupDone } from "@/lib/backup";
+import { ROLE_LABEL, type Me } from "@/lib/roles";
+import { applyTheme, readTheme, type Theme } from "@/lib/theme";
+
+const THEMES: { value: Theme; icon: string; label: string }[] = [
+  { value: "system", icon: "🌓", label: "تلقائي" },
+  { value: "light", icon: "☀️", label: "فاتح" },
+  { value: "dark", icon: "🌙", label: "داكن" },
+];
+
+interface Props {
+  online: boolean;
+  me: Me | null;
+  canBackup: boolean;
+  /** Owner only: manage employee accounts. */
+  onUsers?: () => void;
+  /** Accounts that follow the brands' after-sales requests: their services' numbers (خدمة العملاء). */
+  onContacts?: () => void;
+  /** Accounts that send reminders: the reminders' written texts and voice messages. */
+  onReminderTexts?: () => void;
+  /** DEV ONLY: show «مسح جميع المعلومات». */
+  devReset?: boolean;
+  onDevReset?: () => void;
+  onSendBackup: () => void;
+  onLogout: () => void;
+  onToast: (msg: string) => void;
+}
+
+/** ⚙️ in the header: Excel backup, theme and logout. */
+export function TopMenu({ online, me, canBackup, onUsers, onContacts, onReminderTexts, devReset, onDevReset, onSendBackup, onLogout, onToast }: Props) {
+  const [open, setOpen] = useState(false);
+  const [theme, setTheme] = useState<Theme>("system");
+  const [downloading, setDownloading] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => setTheme(readTheme()), []);
+
+  useEffect(() => {
+    if (!open) return;
+    const outside = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const escape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [open]);
+
+  async function download() {
+    setDownloading(true);
+    try {
+      downloadFile(await fetchBackup());
+      markBackupDone();
+      onToast("تحمل الملف ✓");
+      setOpen(false);
+    } catch (e) {
+      onToast(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  return (
+    <div className="menu-wrap" ref={ref}>
+      <button type="button" className="btn ghost menu-btn" aria-label="القائمة" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((x) => !x)}>
+        ⚙️
+      </button>
+      {open && (
+        <div className="menu" role="menu" aria-label="القائمة">
+          {me && (
+            <>
+              <p className="menu-user">
+                👤 <strong>{me.name}</strong> <span className="muted small">· {ROLE_LABEL[me.role]}</span>
+              </p>
+              <hr />
+            </>
+          )}
+          {onUsers && (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                className="menu-item"
+                onClick={() => {
+                  setOpen(false);
+                  onUsers();
+                }}
+              >
+                👥 المستخدمين والصلاحيات
+              </button>
+              <hr />
+            </>
+          )}
+          {(onContacts || onReminderTexts) && <p className="menu-label">الإعدادات</p>}
+          {onReminderTexts && (
+            <button
+              type="button"
+              role="menuitem"
+              className="menu-item"
+              onClick={() => {
+                setOpen(false);
+                onReminderTexts();
+              }}
+            >
+              💬 رسائل التذكير
+            </button>
+          )}
+          {onReminderTexts && !onContacts && <hr />}
+          {onContacts && (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                className="menu-item"
+                onClick={() => {
+                  setOpen(false);
+                  onContacts();
+                }}
+              >
+                🏭 خدمة العملاء (الشركات)
+              </button>
+              <hr />
+            </>
+          )}
+          {canBackup && (
+            <>
+          <p className="menu-label">النسخة الاحتياطية · آخر وحدة {agoText(lastBackupAt())}</p>
+            <button type="button" role="menuitem" className="menu-item" onClick={() => void download()} disabled={!online || downloading}>
+              {downloading ? "⏳ كنوجدو الملف…" : "⬇️ تحميل Excel"}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="menu-item"
+              disabled={!online}
+              onClick={() => {
+                setOpen(false);
+                onSendBackup();
+              }}
+            >
+              📤 صيفط Excel فواتساب
+            </button>
+            <hr />
+            </>
+          )}
+          <p className="menu-label">المظهر</p>
+          <div className="segmented menu-theme" role="group" aria-label="المظهر">
+            {THEMES.map((t) => (
+              <button
+                key={t.value}
+                type="button"
+                className={theme === t.value ? "on" : ""}
+                aria-pressed={theme === t.value}
+                onClick={() => {
+                  applyTheme(t.value);
+                  setTheme(t.value);
+                }}
+              >
+                {t.icon} {t.label}
+              </button>
+            ))}
+          </div>
+          {devReset && onDevReset && (
+            <>
+              <hr />
+              {/* DEV ONLY: remove before going live. */}
+              <button
+                type="button"
+                role="menuitem"
+                className="menu-item danger-text"
+                disabled={!online}
+                onClick={() => {
+                  setOpen(false);
+                  onDevReset();
+                }}
+              >
+                🧪 مسح جميع المعلومات (تطوير)
+              </button>
+            </>
+          )}
+          <hr />
+          <button type="button" role="menuitem" className="menu-item" onClick={onLogout} disabled={!online}>
+            🚪 خروج
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
