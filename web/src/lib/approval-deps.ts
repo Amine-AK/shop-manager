@@ -1,32 +1,22 @@
-// Which of a seller's waiting requests (طلبات الموافقة) depend on which: a
-// payment needs the new customer or the credit sale it is for, an edit needs
-// the earlier edit it was made on. Accepting a request first accepts what it
-// needs; refusing one also refuses what was built on it. Only types are
-// imported, so lib/ledger.ts can use this file.
+// Which of a seller's waiting requests (طلبات الموافقة) depend on which: an edit
+// of a product needs the earlier waiting edit it was made on, deleting it needs
+// them too. Accepting a request first accepts what it needs; refusing one also
+// refuses what was built on it. Only types are imported, so lib/ledger.ts can use
+// this file.
 
 import type { Approval, LedgerOp } from "./ledger";
 
 const str = (v: unknown) => (typeof v === "string" && v ? [v] : []);
 
-/** Records this change creates or modifies. */
+/** Records this change creates or modifies (marked ⏳ on screen). */
 export function touched(op: LedgerOp): string[] {
   switch (op.type) {
-    case "client.add":
-      return str(op.client?.id);
-    case "client.installment":
-      return [...str(op.id), ...str(op.change?.id)];
-    case "purchase.add":
-      return str(op.purchase?.id);
-    case "payment.add":
-      return str(op.payment?.id);
-    case "sale.add":
-      return [...(op.lines ?? []).flatMap((l) => str(l?.id)), ...(op.purchases ?? []).flatMap((p) => str(p?.id))];
-    case "client.update":
-    case "client.delete":
-    case "purchase.update":
-    case "purchase.delete":
-    case "payment.update":
-    case "payment.delete":
+    case "stock.adjust":
+      return [...str(op.move?.stockId), ...str(op.move?.id)];
+    case "caisse.close":
+      return str(op.close?.id);
+    case "stock.update":
+    case "stock.delete":
     case "sale.delete":
       return str(op.id);
     default:
@@ -37,30 +27,23 @@ export function touched(op: LedgerOp): string[] {
 /** Records this change needs to exist (or to be as it saw them). */
 export function needs(op: LedgerOp): string[] {
   switch (op.type) {
-    case "purchase.add":
-      return str(op.purchase?.clientId);
-    case "payment.add":
-      return [...str(op.payment?.clientId), ...str(op.payment?.purchaseId)];
-    case "payment.update":
-      return [...str(op.id), ...str(op.patch?.clientId), ...str(op.patch?.purchaseId)];
-    case "sale.add":
-      return str(op.lines?.[0]?.clientId);
-    case "client.update":
-    case "client.delete":
-    case "client.installment":
-    case "purchase.update":
-    case "purchase.delete":
-    case "payment.delete":
-    case "sale.delete":
+    case "stock.update":
+    case "stock.delete":
       return str(op.id);
     default:
       return [];
   }
 }
 
+/**
+ * What a later edit can depend on: a stock move changes the quantity only (a
+ * difference, `updatedAt` kept), so an edit of the product doesn't need it.
+ */
+const made = (op: LedgerOp) => (op.type === "stock.adjust" ? str(op.move?.id) : touched(op));
+
 const meets = (needer: Approval, maker: Approval) => {
-  const made = new Set(touched(maker.op));
-  return needs(needer.op).some((id) => made.has(id));
+  const madeIds = new Set(made(maker.op));
+  return needs(needer.op).some((id) => madeIds.has(id));
 };
 
 const byTime = (a: Approval, b: Approval) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);

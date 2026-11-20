@@ -1,10 +1,7 @@
-// The sale screen's helpers: a category's products for its page, what the
-// cash given means (change, short → rest on credit), and a customer's
-// follow-ups (after-sales requests, repairs) for their page in الكريدي.
-// Pure, shared by the screens and the tests.
+// The sale screen's helpers: a category's products for its page and what the
+// cash given means (change, exact, short). Pure, shared by the screens and the tests.
 
-import { clientPhones, type Claim, type Client, type Ledger, type Repair, type Sale, type StockItem } from "./ledger";
-import { formatMoroccoPhone, isValidPhone } from "./sheet-logic";
+import { type Sale, type StockItem } from "./ledger";
 import { round2, searchStock } from "./shop";
 
 export type StockFilter = "all" | "in" | "new" | "used";
@@ -41,17 +38,4 @@ export function quickCash(total: number): number[] {
   const up = (step: number) => Math.ceil(total / step) * step;
   const out = [round2(total), up(50), up(100), up(200), up(500), up(1000)];
   return [...new Set(out)].filter((x) => x >= total).sort((a, b) => a - b).slice(0, 4);
-}
-
-/** A customer's after-sales requests and repairs (by account or by any of their numbers): open ones first, newest first. */
-export function customerFollowUps(c: Client, ledger: Pick<Ledger, "claims" | "repairs">): { claims: Claim[]; repairs: Repair[] } {
-  const phones = new Set(clientPhones(c).map(formatMoroccoPhone).filter(isValidPhone));
-  const same = (p: string) => Boolean(p) && phones.has(formatMoroccoPhone(p));
-  const claims = ledger.claims
-    .filter((x) => x.clientId === c.id || same(x.phone))
-    .sort((a, b) => Number(a.status === "تحل") - Number(b.status === "تحل") || b.createdAt.localeCompare(a.createdAt));
-  const repairs = ledger.repairs
-    .filter((r) => same(r.phone))
-    .sort((a, b) => Number(a.status === "تسلم") - Number(b.status === "تسلم") || b.createdAt.localeCompare(a.createdAt));
-  return { claims, repairs };
 }

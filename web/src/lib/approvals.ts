@@ -1,26 +1,73 @@
-// Seller's credit changes wait for the owner (طلبات الموافقة). A seller's change
-// about credit (new customer, credit sale, payment, instalment, edit, deletion)
-// is not applied to the customers' tabs: it is kept as a request until the owner
-// accepts it. Meanwhile the app shows it, marked ⏳, so what the seller told the
-// customer (receipt, WhatsApp) already counts it, and the cash drawer counts the
-// money taken; the sheet itself stays as it was.
+// Sellers' sensitive changes wait for the owner (طلبات الموافقة). Which ones is a
+// shop setting the owner toggles (⚙️ «⏳ شنو كيتسنى موافقتي»): cancelling a sale, a new
+// price or cost, stock taken out (loss, theft, correction), deleting a product, a
+// cash drawer closed with a difference. Such a change is not applied to the
+// sheet: it is kept as a request until the owner accepts it. Meanwhile the app
+// shows it, marked ⏳; the sheet itself stays as it was.
 
 import { touched } from "./approval-deps";
 import { money } from "./format";
-import { applyOp, CREDIT_OPS, type Approval, type Ledger, type LedgerOp } from "./ledger";
+import { APPROVAL_RULES_KEY, applyOp, type Approval, type Ledger, type LedgerOp } from "./ledger";
 import type { Me } from "./roles";
 
-/** Does this change wait for the owner? Sellers' credit changes do. */
-export function needsApproval(me: Pick<Me, "role"> | null | undefined, op: LedgerOp, ledger: Pick<Ledger, "sales" | "approvals">): boolean {
-  if (me?.role !== "seller" || !CREDIT_OPS.has(op.type)) return false;
-  // Sales: only credit ones (a cash sale is not about a customer's account).
-  if (op.type === "sale.add") return (op.lines ?? []).some((l) => l?.type === "كريدي");
-  if (op.type === "sale.delete") {
-    // Also a credit sale still waiting for the owner.
-    const waiting = ledger.approvals.flatMap((a) => (a.op.type === "sale.add" ? a.op.lines ?? [] : []));
-    return [...ledger.sales, ...waiting].find((s) => s?.id === op.id)?.type === "كريدي";
+/** The kinds of change the owner can make wait for them, in the order of the settings screen. */
+export const APPROVAL_RULES = [
+  { key: "sale-delete", label: "↩️ إلغاء بيعة" },
+  { key: "price-change", label: "🏷️ تبديل ثمن البيع ولا ثمن الشراء" },
+  { key: "stock-out", label: "📉 نقص من المخزون (ضياع، سرقة، تصحيح)" },
+  { key: "stock-delete", label: "🗑️ حذف سلعة" },
+  { key: "caisse-diff", label: "🔒 سد الصندوق بفرق" },
+] as const;
+
+export type ApprovalRule = (typeof APPROVAL_RULES)[number]["key"];
+export type ApprovalRules = Record<ApprovalRule, boolean>;
+
+/** A new shop: everything waits for the owner. */
+export const DEFAULT_APPROVAL_RULES: ApprovalRules = Object.fromEntries(APPROVAL_RULES.map((r) => [r.key, true])) as ApprovalRules;
+
+/** The shop's rules (setting `approval-rules`); a missing or broken setting = the defaults. */
+export function approvalRules(ledger: Pick<Ledger, "settings">): ApprovalRules {
+  const raw = ledger.settings.find((s) => s.key === APPROVAL_RULES_KEY)?.value;
+  if (!raw) return { ...DEFAULT_APPROVAL_RULES };
+  try {
+    const v = JSON.parse(raw) as Partial<Record<string, unknown>>;
+    return Object.fromEntries(APPROVAL_RULES.map((r) => [r.key, typeof v[r.key] === "boolean" ? v[r.key] : true])) as ApprovalRules;
+  } catch {
+    return { ...DEFAULT_APPROVAL_RULES };
   }
-  return true;
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Which rule a change falls under, if any (whoever makes it). */
+export function ruleOf(op: LedgerOp, ledger: Pick<Ledger, "stock">): ApprovalRule | null {
+  switch (op.type) {
+    case "sale.delete":
+      return "sale-delete";
+    case "stock.update": {
+      const item = ledger.stock.find((s) => s.id === op.id);
+      const p = op.patch ?? {};
+      const changes = (k: "sellPrice" | "buyPrice") => p[k] !== undefined && (!item || p[k] !== item[k]);
+      return changes("sellPrice") || changes("buyPrice") ? "price-change" : null;
+    }
+    case "stock.adjust":
+      return op.move && op.move.delta < 0 ? "stock-out" : null;
+    case "stock.delete":
+      return "stock-delete";
+    case "caisse.close": {
+      const k = op.close;
+      return k && k.counted !== null && round2(k.counted - k.expected) !== 0 ? "caisse-diff" : null;
+    }
+    default:
+      return null;
+  }
+}
+
+/** Does this change wait for the owner? A seller's change under a rule the owner turned on. */
+export function needsApproval(me: Pick<Me, "role"> | null | undefined, op: LedgerOp, ledger: Pick<Ledger, "stock" | "settings">): boolean {
+  if (me?.role !== "seller") return false;
+  const rule = ruleOf(op, ledger);
+  return rule !== null && approvalRules(ledger)[rule];
 }
 
 /** Same change, same request: the id comes from the change's own id. */
@@ -64,77 +111,54 @@ export interface RequestInfo {
   text: string;
   /** Money moved by the change, 0 = none. */
   amount: number;
-  clientId: string;
-  client: string;
+  /** The record it is about (product, sale, drawer closing) and its name: requests are grouped by it. */
+  targetId: string;
+  target: string;
 }
 
-/** The customer behind a change, from the ledger or from a waiting «new customer» request. */
-function clientName(ledger: Pick<Ledger, "clients" | "approvals">, id: string): string {
-  const c = ledger.clients.find((x) => x.id === id);
-  if (c) return c.name;
-  for (const a of ledger.approvals) if (a.op.type === "client.add" && a.op.client?.id === id) return a.op.client.name;
-  return "";
-}
-
-/** «💰 دفعة 500 درهم · تلاجة»: what a request does, in a line. */
-export function describe(op: LedgerOp, ledger: Pick<Ledger, "clients" | "purchases" | "payments" | "sales" | "approvals">): RequestInfo {
-  const purchase = (id: string) => ledger.purchases.find((p) => p.id === id);
-  const payment = (id: string) => ledger.payments.find((p) => p.id === id);
-  const out = (icon: string, text: string, clientId: string, amount = 0): RequestInfo => ({ icon, text, amount, clientId, client: clientName(ledger, clientId) });
+/** «🏷️ ثمن البيع 120 ← 150 درهم · شارجور»: what a request does, in a line. */
+export function describe(op: LedgerOp, ledger: Pick<Ledger, "stock" | "sales">): RequestInfo {
+  const product = (id: string) => ledger.stock.find((s) => s.id === id);
+  const out = (icon: string, text: string, targetId: string, target: string, amount = 0): RequestInfo => ({ icon, text, amount, targetId, target });
   switch (op.type) {
-    case "client.add": {
-      const c = op.client;
-      const r = out("👤", `زبون جديد: ${c?.name ?? ""}${c?.installment ? ` · الطريطة ${money(c.installment)} (${c.period})` : ""}`, c?.id ?? "");
-      return { ...r, client: c?.name ?? r.client };
-    }
-    case "client.update":
-      return out("✏️", `تعديل معلومات الزبون (${Object.keys(op.patch ?? {}).length} حاجة)`, op.id);
-    case "client.delete":
-      return out("🗑️", op.withHistory ? "حذف الزبون مع كل الحساب ديالو" : "حذف الزبون", op.id);
-    case "client.installment":
-      return out("🔁", `الطريطة: ${money(op.change?.newAmount ?? 0)} (${op.change?.newPeriod ?? ""})${op.change?.reason ? ` · ${op.change.reason}` : ""}`, op.id);
-    case "purchase.add":
-      return out("🛒", `سلعة: ${op.purchase?.item ?? ""} · ${money(op.purchase?.price ?? 0)}`, op.purchase?.clientId ?? "", op.purchase?.price ?? 0);
-    case "purchase.update": {
-      const p = purchase(op.id);
-      return out("✏️", `تعديل السلعة «${p?.item ?? ""}»${op.patch?.price !== undefined ? ` · ${money(op.patch.price)}` : ""}`, p?.clientId ?? "");
-    }
-    case "purchase.delete": {
-      const p = purchase(op.id);
-      return out("🗑️", `حذف السلعة «${p?.item ?? ""}»`, p?.clientId ?? "", p?.price ?? 0);
-    }
-    case "payment.add": {
-      const p = op.payment;
-      const on = p?.purchaseId ? purchase(p.purchaseId)?.item : "";
-      return out("💰", `${p?.kind ?? "دفعة"} ${money(p?.amount ?? 0)}${on ? ` · ${on}` : ""}`, p?.clientId ?? "", p?.amount ?? 0);
-    }
-    case "payment.update": {
-      const p = payment(op.id);
-      return out("✏️", `تعديل دفعة ${money(p?.amount ?? 0)}${op.patch?.amount !== undefined ? ` ← ${money(op.patch.amount)}` : ""}`, p?.clientId ?? "", op.patch?.amount ?? 0);
-    }
-    case "payment.delete": {
-      const p = payment(op.id);
-      return out("🗑️", `حذف دفعة ${money(p?.amount ?? 0)}`, p?.clientId ?? "", p?.amount ?? 0);
-    }
-    case "sale.add": {
-      const lines = op.lines ?? [];
-      const total = lines.reduce((t, l) => t + (l?.sellPrice ?? 0), 0);
-      return out("🛒", `بيع بالكريدي: ${lines.map((l) => l?.item).join("، ")} · ${money(total)}`, lines[0]?.clientId ?? "", total);
-    }
     case "sale.delete": {
       const s = ledger.sales.find((x) => x.id === op.id);
-      return out("↩️", `إلغاء البيع «${s?.item ?? ""}»`, s?.clientId ?? "", s?.sellPrice ?? 0);
+      return out("↩️", `إلغاء البيعة «${s?.item ?? ""}»${s ? ` (${s.date})` : ""}`, op.id, s?.item ?? "", s?.sellPrice ?? 0);
+    }
+    case "stock.update": {
+      const item = product(op.id);
+      const p = op.patch ?? {};
+      const parts: string[] = [];
+      if (p.sellPrice !== undefined && p.sellPrice !== item?.sellPrice) parts.push(`ثمن البيع ${item ? `${money(item.sellPrice)} ← ` : ""}${money(p.sellPrice)}`);
+      if (p.buyPrice !== undefined && p.buyPrice !== item?.buyPrice) parts.push(`ثمن الشراء ${item ? `${money(item.buyPrice)} ← ` : ""}${money(p.buyPrice)}`);
+      const rest = Object.keys(p).filter((k) => k !== "sellPrice" && k !== "buyPrice").length;
+      if (rest) parts.push(`${rest} معلومات أخرى`);
+      return out("🏷️", `تعديل السلعة: ${parts.join(" · ") || "بلا تبديل"}`, op.id, item?.item ?? (p.item as string | undefined) ?? "");
+    }
+    case "stock.adjust": {
+      const m = op.move;
+      const item = product(m?.stockId ?? "");
+      return out("📉", `نقص ${Math.abs(m?.delta ?? 0)} من المخزون${m?.reason ? ` · ${m.reason}` : ""}`, m?.stockId ?? "", item?.item ?? "");
+    }
+    case "stock.delete": {
+      const item = product(op.id);
+      return out("🗑️", `حذف السلعة (الكمية ${item?.quantity ?? 0})`, op.id, item?.item ?? "");
+    }
+    case "caisse.close": {
+      const k = op.close;
+      const diff = k && k.counted !== null ? round2(k.counted - k.expected) : 0;
+      return out("🔒", `سد الصندوق ${k?.date ?? ""} · الفرق ${diff > 0 ? "+" : ""}${money(diff)}`, k?.id ?? "", `الصندوق ${k?.date ?? ""}`, Math.abs(diff));
     }
     default:
-      return out("📝", op.type, "");
+      return out("📝", op.type, "", "");
   }
 }
 
-/** Waiting requests per customer (owner's list in الكريدي). */
-export function waitingByClient(ledger: Ledger): Map<string, Approval[]> {
+/** Waiting requests per record (owner's list), oldest first. */
+export function waitingByTarget(ledger: Ledger): Map<string, Approval[]> {
   const map = new Map<string, Approval[]>();
   for (const a of waitingOf(ledger)) {
-    const id = describe(a.op, ledger).clientId;
+    const id = describe(a.op, ledger).targetId;
     map.set(id, [...(map.get(id) ?? []), a]);
   }
   return map;

@@ -26,11 +26,6 @@ export async function readJson<T>(request: Request): Promise<T | Response> {
   }
 }
 
-export function parseRowParam(value: string): number | null {
-  const n = Number(value);
-  return Number.isInteger(n) && n >= 2 && n < 1_000_000 ? n : null;
-}
-
 export function handleError(e: unknown) {
   console.error(e);
   if (e instanceof SheetsError) {
@@ -43,5 +38,3 @@ export function handleError(e: unknown) {
   }
   return jsonError("وقع مشكل في السيرفر.", 500);
 }
-
-export const ROW_CHANGED_MESSAGE = "هاد السطر تبدل فالورقة من بعد ما فتحتيه. حدّث اللائحة وعاود.";

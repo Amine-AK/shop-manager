@@ -4,7 +4,7 @@
 
 import { nowParts, type Note } from "./ledger";
 import { displayDate } from "./receipt";
-import { addDays } from "./sheet-logic";
+import { addDays } from "./dates";
 import { normalizeText } from "./shop";
 
 /** A customer's request still to do. */
@@ -109,15 +109,6 @@ export const upcomingReminders = (notes: Note[], now = new Date()) => {
 };
 
 export type RemindPreset = "1h" | "3h" | "tonight" | "tomorrow" | "3days" | "week";
-
-export const REMIND_PRESETS: { value: RemindPreset; label: string }[] = [
-  { value: "1h", label: "بعد ساعة" },
-  { value: "3h", label: "بعد 3 سوايع" },
-  { value: "tonight", label: "العشية 18:00" },
-  { value: "tomorrow", label: "غدا 10:00" },
-  { value: "3days", label: "بعد 3 أيام" },
-  { value: "week", label: "السيمانة الجاية" },
-];
 
 /** The reminder time of a quick choice, from now (shop time). */
 export function presetTime(p: RemindPreset, now = new Date()): { remindDate: string; remindTime: string } {

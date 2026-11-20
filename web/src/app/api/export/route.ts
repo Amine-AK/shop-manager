@@ -2,14 +2,14 @@ import { handleError } from "@/lib/api";
 import { requireUser } from "@/lib/access";
 import { readAllTabs } from "@/lib/sheets";
 import { USERS_TAB } from "@/lib/users";
-import { todayISO } from "@/lib/sheet-logic";
+import { todayISO } from "@/lib/dates";
 import { buildXlsx, type XlsxCell } from "@/lib/xlsx";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Excel backup: a copy of every tab of the Google Sheet (customers,
- * purchases, payments, archive, reminder log…), one sheet per tab.
+ * Excel backup: a copy of every tab of the Google Sheet (stock, sales, cash
+ * drawer, notebook…), one sheet per tab.
  */
 export async function GET() {
   const me = await requireUser("backup");

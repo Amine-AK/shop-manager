@@ -1,7 +1,10 @@
-// Pictures chosen for categories become small squares (96×96) stored as text
-// in the Google Sheet cell, so they need no other storage.
+// Pictures chosen for categories (and the shop's logo) become small images stored
+// as text in a Google Sheet cell, so they need no other storage.
 
-import { MAX_ICON_LENGTH, MAX_PHOTO_LENGTH } from "./ledger";
+import { MAX_ICON_LENGTH } from "./ledger";
+
+/** Longest picture kept in one cell: also fits one Excel cell of the backup (32 767 chars). */
+export const MAX_PHOTO_LENGTH = 32_000;
 
 const SIZE = 96;
 
@@ -27,7 +30,7 @@ export async function pictureToIcon(file: File): Promise<string> {
 }
 
 /**
- * Photo of a device brought for repair: shrunk (longest side 480 px, then
+ * A bigger picture (the shop's logo): shrunk (longest side 480 px, then
  * smaller if needed) and compressed until it fits one sheet cell.
  */
 export async function photoForCell(file: File, maxLength = MAX_PHOTO_LENGTH): Promise<string> {

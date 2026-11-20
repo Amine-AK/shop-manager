@@ -2,7 +2,7 @@
 // It keeps the app itself (page, scripts, styles, fonts, icons) on the device.
 // Customer data is not handled here: the page keeps it in IndexedDB and syncs
 // it through /api, which is never cached.
-const VERSION = "v4";
+const VERSION = "v5";
 const STATIC_CACHE = `static-${VERSION}`;
 const PAGES_CACHE = `pages-${VERSION}`;
 const OFFLINE_URL = "/offline.html";

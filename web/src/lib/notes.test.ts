@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyOp, emptyLedger, nowParts, type LedgerOp, type Note } from "./ledger";
-import { addDays } from "./sheet-logic";
+import { addDays } from "./dates";
 import { dayLabel, dueReminders, eventText, isDue, isOpenRequest, noteEvents, notePages, presetTime, remindLabel, searchNotes, upcomingReminders } from "./notes";
 import { opAllowed } from "./permissions";
 import type { Me } from "./roles";

@@ -55,8 +55,8 @@ describe("where a change comes from", () => {
   it("shows a user only the refused changes their account may make", () => {
     const failed = [
       { op: op({ type: "stock.update", id: item.id, base: T0, patch: {} }) },
-      { op: op({ type: "sale.add", lines: [{ type: "كاش" }], purchases: [] }) },
-      { op: op({ type: "payment.update", id: "P-AAAA0001", base: T0, patch: {} }) },
+      { op: op({ type: "sale.add", lines: [{}] }) },
+      { op: op({ type: "setting.save", key: "approval-rules", value: "{}" }) },
     ];
     expect(visibleFailures(owner, failed)).toHaveLength(3);
     expect(visibleFailures(seller, failed).map((q) => q.op.type)).toEqual(["sale.add"]);

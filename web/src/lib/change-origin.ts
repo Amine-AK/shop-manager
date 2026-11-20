@@ -91,37 +91,17 @@ const LABELS: Record<string, string> = {
   serial: "الكود",
   codes: "أكواد أخرى",
   notes: "ملاحظات",
-  name: "الاسم",
-  phone: "الهاتف",
-  phones: "أرقام أخرى",
-  installment: "الطريطة",
-  period: "المدة",
-  nextDueDate: "الدفعة المقبلة",
   date: "التاريخ",
   time: "الساعة",
-  price: "الثمن",
-  amount: "المبلغ",
-  kind: "النوع",
-  purchaseId: "السلعة",
-  clientId: "الزبون",
-  owner: "مول الجهاز",
-  device: "الجهاز",
-  problem: "المشكل",
-  advance: "التسبيق",
-  status: "الحالة",
-  photo: "الصورة",
-  customer: "الزبون",
-  saleDate: "تاريخ البيع",
-  company: "الشركة",
-  servicePhone: "واتساب الشركة",
-  reminders: "التذكيرات",
   text: "الملاحظة",
+  customer: "الزبون",
+  phone: "الهاتف",
+  kind: "النوع",
   done: "تدارت",
 };
-const MONEY = new Set(["buyPrice", "sellPrice", "price", "amount", "installment", "advance"]);
+const MONEY = new Set(["buyPrice", "sellPrice"]);
 
 function show(key: string, v: unknown): string {
-  if (key === "photo") return v ? "📷" : "—";
   if (Array.isArray(v)) return v.join("، ") || "—";
   if (typeof v === "number") return MONEY.has(key) ? money(v) : String(v);
   return v === undefined || v === null || v === "" ? "—" : String(v);
@@ -130,10 +110,6 @@ function show(key: string, v: unknown): string {
 /** Edits that can be refused because the record changed meanwhile. */
 const EDITS = new Set<LedgerOp["type"]>([
   "stock.update", "stock.delete", "stock.adjust",
-  "client.update", "client.delete", "client.installment",
-  "purchase.update", "purchase.delete", "payment.update", "payment.delete",
-  "repair.update", "repair.delete",
-  "claim.update", "claim.delete",
   "note.update", "note.delete",
 ]);
 
@@ -146,22 +122,6 @@ function target(op: LedgerOp, ledger: Ledger): Record<string, unknown> | undefin
       return find(ledger.stock, op.id);
     case "stock.adjust":
       return op.move ? find(ledger.stock, op.move.stockId) : undefined;
-    case "client.update":
-    case "client.delete":
-    case "client.installment":
-      return find(ledger.clients, op.id);
-    case "purchase.update":
-    case "purchase.delete":
-      return find(ledger.purchases, op.id);
-    case "payment.update":
-    case "payment.delete":
-      return find(ledger.payments, op.id);
-    case "repair.update":
-    case "repair.delete":
-      return find(ledger.repairs, op.id);
-    case "claim.update":
-    case "claim.delete":
-      return find(ledger.claims, op.id);
     case "note.update":
     case "note.delete":
       return find(ledger.notes, op.id);
@@ -189,8 +149,8 @@ export function conflictDetails(op: LedgerOp, ledger: Ledger, seeCost: boolean):
   if (op.type === "stock.adjust" && op.move) {
     changes.push({ label: "الكمية", mine: `${op.move.delta > 0 ? "+" : ""}${op.move.delta}`, now: show("quantity", rec.quantity) });
   }
-  // On a repair, `device` is the repaired device: where the change came from is `origin`.
-  const from = op.type.startsWith("repair.") || op.type.startsWith("claim.") || op.type.startsWith("note.") ? rec.origin : rec.device;
+  // A note keeps the device of its last change in `origin`.
+  const from = op.type.startsWith("note.") ? rec.origin : rec.device;
   return { who: typeof rec.by === "string" ? rec.by : "", device: typeof from === "string" ? from : "", when, changes, gone: false };
 }
 

@@ -1,77 +1,50 @@
-# ELECTRO-LMESTOUR: credit app (Next.js PWA)
+# Shop app: sales, stock and cash drawer (Next.js PWA)
 
-A web app to manage customer credit, stored in a Google Sheet. It opens in the
-browser on a PC or laptop and installs on an Android phone like a normal app.
-It works offline and syncs when the connection comes back.
-
-Each customer has **one running account**: everything they bought (1 to 20+
-purchases a year: appliances, chargers, a phone repair…) minus everything they
-paid, with **one instalment** (الطريطة) that you raise when the debt grows.
+A web app for a small shop, stored in a Google Sheet. It opens in the browser on
+a PC or laptop and installs on an Android phone like a normal app. It works
+offline and syncs when the connection comes back.
 
 What it does:
 
-- **Customers who owe** are listed first; search by name or phone (`0661…`,
-  `+212 661…` and `661…` all match). Also search among customers who have paid,
-  everyone, or the **archive**.
-- **Filter** by status (late, today, tomorrow, upcoming), next payment date and
-  amount owed, and sort.
-- **Customer account**: totals, instalment and months left, every purchase with
-  what is left on it, every payment, and the history of instalment changes.
-- **New purchase** for an existing customer, with a down payment, and a
-  suggested new instalment (logged with the reason).
-- **Payment**: amount, date and time (can be changed), the item it is for (a
-  list; by default the oldest item not fully paid), next payment date.
-- **Fix mistakes**: edit a purchase or a payment, **move a payment recorded on the
-  wrong customer**, or delete; edits and deletes ask for confirmation.
-- **Receipts** for the thermal printer: one payment, or the **whole account**
-  (كشف الحساب) with all items and payment dates.
-- **Archive**: customers who finished paying more than 3 months ago are archived
-  with one button; they can be found in the archive and brought back.
-- **Remind late customers** on WhatsApp through WATI, with one button.
+- **Sales (cash):** cart, family buttons, search as you type, camera or USB /
+  Bluetooth barcode scanner, discounts with a guard against selling under cost,
+  «عطاك» (cash given → change), and a ticket for the thermal printer.
+- **Stock:** products with cost, price, quantity, new / used, several codes per
+  product (one per supplier), the shop's own EAN-13 barcodes and sticker printing,
+  and a log of every quantity change.
+- **Cash drawer and reports:** what came in today, closing with expenses and
+  the count, revenue and profit per day, family and product.
+- **Employees:** owner, sellers and a stock manager, with permissions; some
+  sellers' changes wait for the owner's approval.
+- **Notebook (الكناش):** notes and customers' requests, with reminders.
+- **Excel backup** of the whole sheet.
 
 ## The Google Sheet
 
-The app works in these tabs (it creates them; see *First start* below):
+The app works in these tabs (it creates them on an empty sheet the first time
+the owner opens it, and adds any tab a newer version needs):
 
 | Tab | One row per |
 |---|---|
-| `الزبناء` | customer: number (C-…), name, phone, instalment, period, next payment date, notes, the totals bought / paid / remaining (written by the app), and «أرقام أخرى»: the customer's other numbers, one per line |
-| `المشتريات` | purchase: customer, date, item, selling price (the buying price will live in the future stock section) |
-| `الدفعات` | payment: receipt number (P-…), customer, date, time, amount, تسبيق/دفعة, item |
-| `تغييرات الطريطة` | instalment change: old and new amount and period, reason |
-| `أرشيف الزبناء`, `أرشيف المشتريات`, `أرشيف الدفعات` | archived customers and their history |
-| `سجل التذكيرات` | WhatsApp reminder sent |
+| `المخزون` | product: name, family, new/used, cost, price, quantity, codes, last change by / from |
+| `الفئات` | product family, its target margin and its icon |
+| `المبيعات` | line sold: ticket, cost, price, profit, seller |
+| `حركات المخزون` | quantity changed by hand (delivery, count, loss…) and why |
+| `الصندوق اليومي` | drawer closing: sales, expenses, expected, counted, difference |
+| `الإعدادات` | shop setting (key → JSON): default sticker look, approval rules |
+| `طلبات الموافقة` | seller's change waiting for the owner, and the decision |
+| `الكناش` | notebook line |
+| `المستخدمين` | employee account (password hashed; never in the Excel backup) |
 
-**Several phone numbers:** a customer has one main number («الهاتف», the one
-WhatsApp messages and reminders go to) and up to 10 others («أرقام أخرى»), added
-with **＋ زيد رقم آخر** when creating or editing the customer. Searching finds a
-customer by any of their numbers. In the account, the other numbers are folded
-behind a small «+N ▾» button next to the main number; tap it to see them and
-call one. Older sheets get the «أرقام أخرى» column title on their own.
-
-Customers, purchases and payments are linked by their numbers (`C-…`, `S-…`,
-`P-…`), so moving or sorting rows by hand doesn't break anything. You can read
-and fix things in the sheet directly, but **don't change the numbers in the
-first columns**.
-
-Size: about 1000 active customers and 3000 a year make roughly 25,000 rows a
-year, far below Google Sheets' limit (10 million cells). Archiving keeps the
-active tabs small, so the app stays fast.
-
-### First start: moving the old sheet
-
-The first time the app opens on a sheet without these tabs, it shows
-**«زيد الأوراق ونقل الزبناء»**. That creates the tabs and moves every customer of
-the old `Feuille 1` (one row per customer, items and payments joined with `+`):
-each item becomes a purchase with its date and price, each payment a payment
-with its date and time. `Feuille 1` is left as it was, as a backup.
+Records are linked by their numbers (`I-…`, `V-…`, `M-…`), so moving or sorting
+rows by hand doesn't break anything. You can read and fix things in the sheet
+directly, but **don't change the numbers in the first columns**.
 
 ### Excel backup
 
 In the **⚙️ menu** (top of the page): **«⬇️ تحميل Excel»** downloads
 `electro-lmestour-backup-YYYY-MM-DD.xlsx`: a copy of every tab of the Google
-Sheet (customers, purchases, payments, instalment changes, archive, reminder
-log…), one Excel sheet per tab. Phones stay text (leading 0 kept), amounts
+Sheet (stock, sales, cash drawer, notebook…), one Excel sheet per tab. Phones stay text (leading 0 kept), amounts
 stay numbers. It needs internet; changes made offline are in it only once
 they have synced. The file opens in Excel or LibreOffice, or can be imported
 back into Google Sheets (File > Import).
@@ -89,41 +62,17 @@ WhatsApp links can't attach a file, so sending takes a tap or two:
 The 24 hours are counted per device (phone and PC each remember their last
 backup).
 
-### The old Apps Script (code.gs) is no longer used
-
-The app replaces everything `code.gs` did (menu, WhatsApp links, late list,
-invoice). It was removed from this repository, but it still lives in
-the sheet itself. To stop it:
-
-1. Open the sheet > **Extensions > Apps Script**.
-2. **Triggers** (clock icon, left): delete every trigger (`onEditInstalled`,
-   `runDailyMorningAutomation`).
-3. Back in the editor, delete the code (or the whole project) and save.
-
 ## The shop: sales, stock, cash drawer, reports
 
-Five sections (bottom bar on the phone, tabs on a PC): **الكريدي**, **البيع**,
-**المخزون**, **الصندوق**, **التقارير**. Everything works offline and syncs later,
-like the credit ledger.
+Four sections (bottom bar on the phone, tabs on a PC): **البيع**, **المخزون**,
+**الميزانية** (cash drawer + reports) and **الكناش**. Everything works offline
+and syncs later.
 
-**New tabs** (created on their own the first time the app opens a sheet that
-was set up before them):
-
-| Tab | One row per |
-|---|---|
-| `المخزون` | product: name, family, new/used, cost, price, quantity, IMEI/serial |
-| `الفئات` | product family, its target margin and its icon (5 families to start with) |
-| `المبيعات` | line sold, cash or credit: cost, price, profit, seller, customer |
-| `حركات المخزون` | quantity changed by hand (delivery, count, loss…) and why |
-| `الصندوق اليومي` | drawer closing: cash in, expenses, expected, counted, difference |
-
-- **البيع (sale):** 💵 cash (no customer) or 📒 credit (a customer's account, with
-  an optional advance). Big buttons for the product families (🧊 📱 🔌 🛠️ 🍳):
+- **البيع (sale):** cash only. Big buttons for the product families (📱 🔌 🍳…):
   tap one to list its products in stock (and «حاجة أخرى» for something not in
   stock, like a repair), or search as you type (`ip 11` finds `iPhone 11 64GB`). The price can be changed (discount); the
-  cost and profit are shown, and a price under cost is refused. «شراء جديد» in a
-  customer's account uses the same form, so every sale is in the reports.
-  A cash sale prints a «وصل البيع» ticket.
+  cost and profit are shown, and a price under cost is refused.
+  A sale prints a «وصل البيع» ticket.
 - **Several codes per product (one per supplier):** the same product bought
   from different suppliers comes with different QR codes / barcodes / S/N. All
   of them go in the product's «الأكواد» box (one per line) and all lead to the
@@ -190,25 +139,16 @@ was set up before them):
   (in التقارير) puts it back. Quantity changes by hand are differences
   (+3 delivered, −1 lost), so counts from two phones add up, and each one is
   logged with its reason.
-- **الصندوق (cash drawer):** money in for the day = cash sales + credit advances
-  + instalments. «إغلاق الصندوق» records the expenses and the cash actually
+- **الصندوق (cash drawer):** money in for the day = the day's sales. «إغلاق الصندوق» records the expenses and the cash actually
   counted; the sheet keeps the expected amount and the difference, so the owner
-  can check every evening. Payments typed in that day with an earlier date are
+  can check every evening. Sales typed in that day with an earlier date are
   listed apart.
 - **التقارير (reports):** today / week / month / year / custom, by family or
   product name: revenue, net profit (price − cost; lines without a known cost
-  are counted apart), cash vs credit, units sold per product, chart per day or
-  month. A credit sale counts on the day it is sold.
+  are counted apart), average ticket, units sold per product, chart per day or
+  month.
 
-No name to type: the seller column stays empty until worker accounts are added
-(`currentSeller()` in `src/lib/shop.ts`).
-
-**New customer (+ زبون جديد)** takes 3 short steps: name and phone only →
-«واش بغيتي تزيد ليه بيعة دابا؟» → the sale, for that customer, from one input:
-the family buttons or the search bar. A
-customer without an instalment gets one with their first sale (amount suggested
-over ~10 months, period, next due date). «لا، من بعد» opens the customer's
-account; until they buy something they are under «الكل».
+No name to type: the server writes the logged-in account as the seller.
 
 ## 1. Google Sheets access (once)
 
@@ -223,45 +163,7 @@ account; until they buy something they are under «الكل».
 6. Put `client_email` in `GOOGLE_SERVICE_ACCOUNT_EMAIL` and `private_key` in
    `GOOGLE_PRIVATE_KEY`. Keep this key secret: it can edit the sheet.
 
-## 2. WATI (for the reminder button)
-
-WhatsApp only lets businesses message customers who haven't written in the
-last 24 hours with a **template approved by WhatsApp**.
-
-1. In WATI: **Broadcast > Your templates > New template message**.
-   - Name: `debt_reminder_ar`, category **Utility**, language **Arabic**.
-   - Body. WATI fills `{{1}}`…`{{5}}` **in this order**: name, items still being paid, due
-     date, remaining amount, instalment.
-
-     ```
-     السلام عليكم {{1}}، نذكركم من متجر ELECTRO-LMESTOUR بأن موعد الدفعة بخصوص ({{2}}) قد حل بتاريخ {{3}}.
-     ⏳ المبلغ المتبقي: {{4}} درهم
-     📌 الطريطة المتفق عليها: {{5}}
-     المرجو التواصل معنا عبر رقمنا التجاري 0663336760 وشكراً.
-     ```
-   - Submit it and wait until it shows **Approved**. WATI refuses templates
-     that are pending or rejected.
-2. Set these variables:
-   - `WATI_API_ENDPOINT`: `https://live-mt-server.wati.io/<tenant ID>`. The
-     tenant ID is the number in the WATI dashboard address
-     (`live.wati.io/10281911/…` gives `10281911`).
-   - `WATI_ACCESS_TOKEN`: a WATI API key (`wati_…`) with at least one of the
-     permissions `api`, `wati_integration:write` or `messagetemplate:write`.
-   - `WATI_CHANNEL_NUMBER`: the shop's WhatsApp number connected in WATI, without
-     `+` (e.g. `212658869574`).
-   - `WATI_TEMPLATE_NAME`: the template's exact name.
-
-The app uses WATI's `POST /{tenantId}/api/v1/sendTemplateMessage`. WATI answering
-"sent" means it accepted the message; delivery happens a few seconds later.
-WATI refuses messages when the trial's broadcast quota is used up.
-
-The reminder button lists every customer whose payment date has passed and who
-still owes money. You can untick anyone, then confirm. Customers with a bad
-phone number or already reminded today are shown but not selected. WATI's
-answer for each customer (sent / failed and why) is shown in the list and saved
-in the `سجل التذكيرات` tab.
-
-## 3. Run on your computer
+## 2. Run on your computer
 
 You need Node.js 20 or newer.
 
@@ -272,7 +174,7 @@ cp .env.example .env.local   # then fill it in
 npm run dev                  # http://localhost:3000
 ```
 
-## 4. Put it online (needed to install it on the phone)
+## 3. Put it online (needed to install it on the phone)
 
 Installing a PWA needs HTTPS, so host it. [Vercel](https://vercel.com) is free
 for this:
@@ -283,33 +185,19 @@ for this:
 3. Add every variable from `.env.example` under **Environment Variables**.
 4. Deploy. You get an address like `https://electro-lmestour.vercel.app`.
 
-## 5. Install the app
+## 4. Install the app
 
 - **Android (Chrome):** open the address, log in, then **⋮ menu > Install app**
   (or "Add to Home screen"). It gets its own icon and opens full screen.
 - **PC / laptop (Chrome or Edge):** open the address and click the install icon
   at the right of the address bar. Or just keep using it in the browser.
 
-## Printing receipts (thermal printer)
+## Printing tickets (thermal printer)
 
-After you record a payment, the receipt (**وصل الأداء**) opens by itself with a
-**🖨️ طبع** button. In a customer's account, **وصل** next to any payment prints it
-again, and **كشف الحساب** prints the whole account. It works offline too.
+After a sale, the ticket (**وصل البيع**) opens by itself with a **🖨️ طبع**
+button; «وصل» next to any sale in التقارير prints it again. It works offline too.
 
-- **Payment receipt:** shop, receipt number (`P-…`), date and time, customer and
-  number, the item it was for, the amount, and the account right after that
-  payment (total, paid so far, remaining, next date, instalment).
-- **Account statement:** every purchase with its date, price and what is left on
-  it, every payment with its date, totals and instalment. For a long history,
-  tick "only the last 12 payments" (the older ones are printed as one total).
-- **Account statement on WhatsApp:** always the full detail, even when only the
-  last 12 payments are printed. It lists each purchase (date, price, notes),
-  every payment made for it (date, time, تسبيق or دفعة, notes), its share of the
-  general payments, what is paid and left on it, then the general payments and a
-  summary. For a very long account, use the copy button if the WhatsApp link
-  doesn't open with the text.
-
-Choose **58 mm** or **80 mm** paper in the receipt window; the app remembers it on
+Choose **58 mm** or **80 mm** paper in the ticket window; the app remembers it on
 that device.
 
 - **PC / laptop (USB printer):** install the printer's driver (Xprinter, Epson
@@ -319,7 +207,7 @@ that device.
 - **Android phone (Bluetooth or USB printer):** Android needs a print service for
   the printer. Install the printer maker's print plugin, or a general one such as
   **RawBT**, enable it in *Settings > Connected devices > Printing*, then press
-  **طبع الوصل** and choose the printer.
+  **طبع** and choose the printer.
 
 Do a test print once to check the width; if the right side is cut, choose 58 mm.
 
@@ -409,35 +297,6 @@ preview draws the sticker's edge (red dashes) and the space inside the margins.
 The cash drawer (💰 الصندوق) and the reports (📊 التقارير) are one tab,
 «💼 الميزانية», with a switch at the top (only the parts the account may open).
 
-### 🔧 الإصلاح (repairs)
-
-A separate tab for devices customers bring to be repaired. In **＋ إصلاح جديد**,
-type the phone number first: if it is a customer's (any of their numbers, any
-format) or someone who brought a repair before, their name fills in by itself
-(from the data on the device, no internet needed; a name you typed is never
-replaced, a «استعمل» link offers it instead). The form:
-📷 photo of the device (shrunk to fit one sheet cell), owner's name and phone,
-the device, the problem, the repair price and the advance (التسبيق), date and
-time (now by default). Each repair gets **its own barcode** (EAN-13 starting with
-2, never the same as a product or another repair): **🖨️ طبع الملصق** prints it
-with the shop's default sticker look, **⬇️ صورة** saves it as an image. Stick it
-on the device; scanning it (USB scanner or 📷 سكاني) opens the repair.
-Statuses: 📥 مستلم → 🔧 فالإصلاح → ✅ واجد → 🤝 تسلم (or ❌ ما تصلحش).
-**🤝 تسلم** asks when the owner collected it, the **final price** (the first
-estimate may be wrong), **what they paid then** (counted in that day's cash
-drawer) and the **shop's costs** (parts or extra work not charged to the
-customer); the repair then shows what is left, and the profit (received − costs)
-for accounts that see costs, and «📲 وصل التسليم» sends the owner the receipt.
-Moving a collected device back to another status asks first and takes the
-delivery payment back out of the drawer. WhatsApp
-buttons send the owner a drop-off receipt («📲 وصل الاستلام») and, when ready,
-«📲 خبرو أنه واجد» with what is left to pay. The list shows what is in the shop
-(default), what is ready, or everything; search by name, phone, device or
-barcode. Repair advances count in the day's cash drawer (الصندوق), on the day
-the device was brought («🔧 تسبيقات الإصلاح»). Saved in the sheet tab «الإصلاح». Service **🔧 الإصلاح** in the users
-window: without it a seller doesn't see the tab, and the server doesn't send
-repairs (customers' phones) to their device.
-
 ### 📝 الكناش (the shop's notebook)
 
 A main tab that looks like the paper notebook next to the till, for every account
@@ -445,8 +304,8 @@ A main tab that looks like the paper notebook next to the till, for every accoun
 
 - Write a line at once at the top of the page: «📝 ملاحظة» (anything to remember)
   or «🙋 طلب زبون» (what a customer asked for). Add the customer if it's about one:
-  typing the phone fills the name from الزبناء (or earlier repairs), from the data
-  already on the device. Date, time and who wrote it are kept.
+  name and phone, typed as free text (not linked to any customer list). Date,
+  time and who wrote it are kept.
 - Pages per day («اليوم», «البارح», then the date), newest first. Tick ✓ when it's
   done (who and when are kept). Search by word, customer or phone; filters
   «🙋 طلبات باقية», «ما تداروش», «✓ تدارو». 📞 calls the customer.
@@ -487,29 +346,8 @@ A main tab that looks like the paper notebook next to the till, for every accoun
   next one; the bottom bar shows the cart and goes back. Long categories load as
   you scroll. The phone's back button closes the page.
 - «عطاك» (cash given): quick amounts («✓ المبلغ كامل» and round notes), then the
-  change to give back («🔁 رد ليه …») or «✓ خالص». If it's short, «📒 الباقي كريدي على
-  زبون» turns the sale into a credit sale with what was given as the advance. In a
-  credit sale, an advance that covers everything offers «💵 سجلها بيع كاش».
-
-### 💬 Reminder texts and voice messages
-
-⚙️ → «💬 رسائل التذكير» (accounts that send reminders):
-
-- **Written texts**, shared by every device (sheet tab الإعدادات, key
-  `reminder-templates`). Write the message as you like and put between brackets
-  what the app fills for each customer: [الاسم], [الباقي], [تاريخ الدفعة],
-  [شحال فات], [السلعة], [الطريطة], [المجموع], [المدفوع], [المحل], [هاتف المحل].
-  The buttons insert them where the cursor is; a preview shows the message for a
-  real customer; an unknown [word] is flagged. A line whose values are all empty
-  (e.g. no instalment) is left out. «التذكير العادي» is the built-in text.
-- **Voice messages**, kept on this device only: «🎤 سجل» (up to 2 minutes) or
-  «📁 اختار ملف صوتي», then listen or delete.
-
-In «تذكير المتأخرين», choose the text and (optionally) the voice message; the
-choice is remembered on the device. «💬 واتساب» opens the chat with the chosen text.
-«🎤 صوت»: on a phone the share menu opens → WhatsApp → pick the customer (WhatsApp
-can't receive a sound through a link); on a PC the file is downloaded, to drag
-into the customer's chat.
+  change to give back («🔁 رد ليه …») or «✓ خالص». If it's short, it says how much
+  is missing.
 
 ### 🔄 New version of the app
 
@@ -518,89 +356,32 @@ the device) keeps the version it started with. When a newer version is online,
 a blue bar «🔄 كاينة نسخة جديدة ديال التطبيق» appears with «حدّث دابا», which loads
 it. It never reloads by itself, so a half-filled sale or form isn't lost.
 
-### 📲 Reminding late customers one by one
+### ⏳ Sellers' changes wait for the owner (طلبات الموافقة)
 
-«تذكير المتأخرين» lists the late customers from the data on the device (also
-without internet). Each one has «📞 اتصل» and «💬 واتساب»: WhatsApp opens on their
-number with the reminder typed (due date, unpaid product, what is left, the
-instalment); nothing is sent until you press send. No API or WATI needed. A
-customer reminded today from this device shows «✓ … اليوم». If WATI is set up on
-the server, ticking customers still sends to several at once through it.
+Some changes a **seller** account makes are not written to the sheet at once:
+they are kept in the tab «طلبات الموافقة» until the owner decides. Which ones is
+a shop setting, in ⚙️ → «⏳ شنو كيتسنى موافقتي» (owner only; all on for a new shop):
 
-### 🏭 After-sales requests in الكريدي
+- ↩️ cancelling a sale,
+- 🏷️ a product's new selling price or cost,
+- 📉 stock taken out (loss, theft, correction),
+- 🗑️ deleting a product,
+- 🔒 closing the cash drawer with a difference (counted ≠ expected).
 
-For accounts with «🏭 خدمة الشركة», the الكريدي page shows the requests to the brands
-like the late payers: a card next to «متأخرين» with the open requests; when some
-passed 48 hours it turns red («⏰ عند الشركة») and a red bar says how many, with
-«شوف ←». Both open the list of requests (late ones first) over the screen. In the
-customer list, ⏰ marks a customer with a late request, 🏭 one with an open request.
+How it works:
 
-### 🔧 A customer's repairs and after-sales requests on their page
-
-In الكريدي, the customer's page has «🔧 الإصلاح وخدمة الشركة»: their requests to the
-brands (by account or phone) and their repairs (by any of their numbers), open
-ones first, with status and «⏰ معطل». Tap one to follow it right there (remind the
-brand, change status, deliver…); «🏭 ريكلاماسيون» and «🔧 إصلاح جديد» (name and phone
-already filled) are in the same section.
-
-### ⭐ Special customers and who follows them
-
-- The tab الزبناء has a last column «نوع الزبون (0 عادي، 1 خاص)»: **0** = normal
-  (the default, also for older rows), **1** = special. Special customers show ⭐ in
-  the list and «⭐ زبون خاص» on their page.
-- Only the owner sets it: «⭐ زبون خاص (نوع 1)» in «زبون جديد» and «تعديل المعلومات»
-  (or type 1 directly in the sheet).
-- In ⚙️ → المستخدمين, each **seller** account has «الزبناء لي كيتبع»:
-  «👥 جميع الزبناء» (default) or «⭐ غير الخاصين». An account set to special only
-  sees just the special customers and their credit (also in reminders and the
-  archive), can't change anything on the others (the server refuses it), and the
-  customers it adds are special. Its cash sales and the notebook are unchanged.
-  Saved in the last column of «المستخدمين» («الزبناء لي كيتبع»).
-
-### ⏳ Sellers' credit changes wait for the owner (طلبات الموافقة)
-
-Whatever a **seller** account changes about credit (new customer, credit sale,
-payment / instalment, change of الطريطة, edits and deletions) is not written to
-the customers' tabs. It is kept in the tab «طلبات الموافقة» until the owner decides.
-
-- Meanwhile the app counts it, marked ⏳: the customer's receipt and WhatsApp
-  message already show the lower amount left, and the cash drawer counts the
-  money the seller took. The sheet itself does not change.
-- **Owner**: in الكريدي the bar «⏳ N زبون عندهم … تعديل كيتسنى الموافقة ديالك»
-  opens the list, grouped by customer: «✓ قبول», «✕ رفض» (with a reason), «✓ قبل الكل».
-  Accepting a payment of a new customer also accepts the customer and the sale it
-  needs; refusing the customer also refuses what was built on it. A customer's page
-  shows the same banner; the owner can't edit a record a seller changed until deciding.
+- Meanwhile the app shows the change, marked ⏳ (product list, drawer closings);
+  the sheet itself does not change. Sales go on normally.
+- **Owner**: in البيع and المخزون the bar «⏳ N تعديل ديال البائعين كيتسنى الموافقة ديالك»
+  opens the list, grouped by product (or sale, or drawer): «✓ قبول», «✕ رفض»
+  (with a reason), «✓ قبل الكل». Accepting a second edit of a product also
+  accepts the first one it was made on; refusing the first refuses what was built
+  on it. The owner can't edit a product a seller changed until deciding.
 - **Seller**: sees what still waits, and the changes refused in the last 7 days with the reason.
-- **Notes**: on a waiting change of their own the seller can write «📝 ملاحظة للمالك»
-  (e.g. «خلص نص اليوم والباقي السبت»), shown to the owner in the list and on the
-  customer's page. The owner can accept with a note too («📝 قبول بملاحظة»); the
-  seller sees it for 7 days (bar in الكريدي and customer's page). Both are kept in
-  the tab «طلبات الموافقة» («ملاحظة البائع», «ملاحظة المالك / سبب الرفض»).
-- A refused payment no longer counts in the cash drawer: if the drawer was already
-  closed that day, it shows as a difference.
-
-### 🏭 خدمة الشركة (after-sales requests to the brands)
-
-A product the shop sold (a fridge…) has a fault that the brand's own service
-must repair. The request is sent to that service on WhatsApp and followed here,
-in الإصلاح ← «🏭 خدمة الشركة».
-
-- **⚙️ ← خدمة العملاء**: save each brand's after-sales WhatsApp number once
-  (shared by every device through the sheet, setting `service-contacts`).
-- **New request**: «🏭 ريكلاماسيون» on a customer's page (choose one of their
-  purchases), or «＋ طلب جديد» in the tab (any sale, cash or credit, or a
-  product typed by hand). Choose the brand's service, check the customer's name
-  and number (filled from the app's data, both can be changed), write the fault.
-  «📲 سجل وصيفط فواتساب» saves the request and opens WhatsApp on the service's
-  number with the message ready (device, sale date, fault, customer to call).
-- **Following**: statuses «تصيفط», «كيتصلح», «تحل». A request still open 48 hours
-  after the last message sent (Sundays and holidays included) is «⏰ معطل»: red
-  in the list, counted on the الإصلاح tab, and flagged on the purchase in the
-  customer's page. «🔔 ذكّر الشركة فواتساب» opens a reminder asking them to call
-  the customer; it is counted, and the 48 hours start again.
-- Sheet tab «خدمة الشركة» (created on first use). Own permission «🏭 خدمة الشركة»
-  in the accounts table; accounts without it don't receive the requests.
+- **Notes**: on a waiting change of their own the seller can write «📝 ملاحظة للمالك»,
+  shown to the owner in the list. The owner can accept with a note too
+  («📝 قبول بملاحظة»); the seller sees it for 7 days. Both are kept in the tab
+  «طلبات الموافقة» («ملاحظة البائع», «ملاحظة المالك / سبب الرفض»).
 
 ### Who changed a product, and refused changes
 
@@ -658,31 +439,28 @@ The sticker preview in the sticker window is an editor, zoomed to the screen wid
 After the app has been opened once with internet on a device, it also works
 **offline** on that device:
 
-- It opens and shows the customers as they were at the last sync (the bar at
+- It opens and shows the stock and sales as they were at the last sync (the bar at
   the top says when).
-- You can **add, edit, record payments and delete**. Each change is saved on the
+- You can **sell, add and edit products, count stock, write in the notebook**. Each change is saved on the
   device right away and marked **ما تزامنش** (not synced yet).
 - When the connection comes back, the changes are sent to the Google Sheet **by
   themselves, in the order you made them**. This happens as soon as the phone is
   back online, when you open the app, and every 30 seconds while changes wait.
   The app must be open for this; a closed app syncs the next time it's opened.
-- **Reminders need internet** and wait until every change has been sent, so a
-  customer who paid offline never gets a reminder by mistake.
 
 What makes syncing safe:
 
 - **Nothing is applied twice.** Every change has its own number; if the phone
   sends it again (the connection dropped before the answer), the server sees it
   is already there.
-- **Rows can move.** Everything is found by its number (C-…, S-…, P-…), not by
+- **Rows can move.** Everything is found by its number (I-…, V-…, M-…), not by
   its row.
-- **Other people's changes are never overwritten.** If a customer, purchase or
-  payment was changed on another device while you edited it offline, your change
+- **Other people's changes are never overwritten.** If a product or a notebook
+  line was changed on another device while you edited it offline, your change
   is refused and listed under ⚠️ at the top: **طبقو** (apply it anyway, on the
   current version) or **تجاهل** (drop it).
 - **Few requests:** a whole batch of changes is saved with about 5 Google
   requests, so a long offline day syncs in one go.
-- **Archive and restore need internet**, and wait until every change is synced.
 - The changes waiting on a device live in that browser's storage. Clearing the
   browser data, or uninstalling the app, before they're synced loses them.
 
@@ -692,17 +470,14 @@ What makes syncing safe:
   from before accounts count as the owner's). Sees and does everything, and
   manages accounts in ⚙️ → «👥 المستخدمين والصلاحيات». Other owner accounts can
   be created there too.
-- **Seller (البائع):** sees every customer and their debt; everything else is
-  ticked by the owner: cash sale, credit sale, payments, add customer, edit
-  (customers, purchases, payments), delete/archive customers, cancel sales,
-  reminders, stock management, cash drawer, reports, Excel backup. Discounts are
-  free.
+- **Seller (البائع):** what the owner ticks: sale, cancel sales, stock
+  management, cash drawer, reports, Excel backup. Discounts are free. Some of
+  their changes wait for the owner (see «⏳ Sellers' changes wait for the owner»).
 - **Stock manager (مسؤول المخزون):** only المخزون: add products, add deliveries
-  (+), scan and search. No customers, sales, quantities out, edits or deletions.
+  (+), scan and search. No sales, quantities out, edits or deletions.
 - **Buy prices and profit:** visible to an employee only if the owner ticks
   «يشوف ثمن الشراء والربح». Otherwise the server never sends them (an employee
-  can still enter the cost of a new product). «مجموع الكريدي» and «قيمة المخزون»
-  are for the owner only.
+  can still enter the cost of a new product). «قيمة المخزون» is for the owner only.
 - Accounts live in the sheet tab «المستخدمين»: name, login, role, services, cost
   visibility, active, and the password **hashed** (scrypt, at least 8
   characters). This tab is never in the Excel backup.
@@ -721,7 +496,7 @@ What makes syncing safe:
 With `ALLOW_DATA_RESET=true` in Vercel (then Redeploy), the ⚙️ menu shows
 «🧪 مسح جميع المعلومات (تطوير)». It downloads an Excel backup (ticked by
 default), asks to type «مسح», then empties every app tab of the Google Sheet
-(titles stay, the default families come back, `Feuille 1` is not touched) and
+(titles stay, the default families come back) and
 forgets this device's unsent changes. Without the variable the button is hidden
 and `/api/dev/reset` answers 403. Other phones should reload the app after a
 reset, or their unsent changes could come back.
@@ -735,30 +510,15 @@ Dashboard.tsx).
 
 - One shop password (`APP_PASSWORD`). After 30 days you need to log in again.
 - Every page and API call requires login. Requests from other websites are refused.
-- Google and WATI keys stay on the server and are never sent to the phone.
-- Use a long password. Anyone with it can see and change customer debts.
+- Google keys stay on the server and are never sent to the phone.
+- Use a long password. Anyone with it can see and change the shop's data.
 
 ## Development
 
 ```bash
-npm test          # ledger rules, migration, receipts, dates, amounts, phones
+npm test          # ledger rules, approvals, permissions, cash drawer, reports, dates, scanner
 npm run lint      # TypeScript check
 npm run build
 ```
 
-Code map:
-
-| Path | What |
-|---|---|
-| `src/lib/ledger.ts` | Customers, purchases, payments, instalment changes; every change as an operation (`applyOp`, used on the phone and on the server); account summaries |
-| `src/lib/ledger-sheet.ts` | Tabs and columns in the sheet; moving the old `Feuille 1` |
-| `src/lib/store.ts` | Server: read the tabs, save changes (only the rows that changed), setup, archive, restore |
-| `src/lib/sheets.ts` | Google Sheets API calls (batched) and the reminder log |
-| `src/lib/receipt.ts` | Payment receipt and account statement |
-| `src/lib/sheet-logic.ts` | Dates, amounts, phone numbers |
-| `src/lib/wati.ts` | WATI template message |
-| `src/app/api/…` | Server routes: `data`, `sync`, `setup`, `archive`, `reminders` |
-| `src/components/useLedger.ts` | Data on the device (IndexedDB), unsent changes, sync |
-| `src/components/` | Screens: list, account, forms, receipts, archive, reminders |
-| `src/proxy.ts` | Login check on every request |
-| `public/sw.js` | Service worker: keeps the app itself on the device so it opens offline |
+Code map: see `CLAUDE.md` at the root of the repository.

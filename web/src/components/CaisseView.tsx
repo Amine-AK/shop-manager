@@ -5,6 +5,7 @@ import { money } from "@/lib/format";
 import { newLedgerId, nowParts } from "@/lib/ledger";
 import { displayDate, displayDateTime } from "@/lib/receipt";
 import { cashDay, currentSeller, round2 } from "@/lib/shop";
+import { approvalRules } from "@/lib/approvals";
 import { Modal } from "./Modal";
 import type { LedgerState } from "./useLedger";
 import { Field, parseAmount } from "./ui";
@@ -12,23 +13,21 @@ import { Field, parseAmount } from "./ui";
 /**
  * The day's cash drawer (الصندوق اليومي): what should be in it, and the closing
  * count that the owner can check from anywhere.
- * Expected = cash sales + credit advances + instalments + repair advances − shop expenses.
+ * Expected = cash sales − shop expenses. A seller's closing that doesn't match the
+ * count can wait for the owner (approval rule «caisse-diff»).
  */
 export function CaisseView({ data, onToast }: { data: LedgerState; onToast: (msg: string) => void }) {
   const ledger = data.ledger!;
   const [date, setDate] = useState(data.today);
   const [closing, setClosing] = useState(false);
   const day = useMemo(() => cashDay(ledger, date), [ledger, date]);
-  const names = useMemo(() => new Map(ledger.clients.map((c) => [c.id, c.name])), [ledger.clients]);
   const last = day.closings[day.closings.length - 1];
   const t = day.totals;
 
-  const rows = [
-    ...day.cashSales.map((s) => ({ id: s.id, time: s.time, label: `${s.quantity > 1 ? `${s.quantity}× ` : ""}${s.item}`, sub: `بيع كاش${s.seller ? ` · ${s.seller}` : ""}`, amount: s.sellPrice })),
-    ...day.advances.map((p) => ({ id: p.id, time: p.time, label: names.get(p.clientId) ?? "—", sub: "تسبيق كريدي", amount: p.amount })),
-    ...day.installments.map((p) => ({ id: p.id, time: p.time, label: names.get(p.clientId) ?? "—", sub: "دفعة طريطة", amount: p.amount })),
-    ...day.repairs.map((r) => ({ id: r.id, time: r.time, label: r.device, sub: r.kind === "advance" ? "تسبيق إصلاح" : "خلاص إصلاح (التسليم)", amount: r.amount })),
-  ].sort((a, b) => b.time.localeCompare(a.time));
+  const rows = day.cashSales
+    .map((s) => ({ id: s.id, time: s.time, label: `${s.quantity > 1 ? `${s.quantity}× ` : ""}${s.item}`, sub: `بيع${s.seller ? ` · ${s.seller}` : ""}`, amount: s.sellPrice }))
+    .sort((a, b) => b.time.localeCompare(a.time));
+  const tickets = new Set(day.cashSales.map((s) => s.ticket)).size;
 
   return (
     <div className="view">
@@ -47,36 +46,14 @@ export function CaisseView({ data, onToast }: { data: LedgerState; onToast: (msg
       <section className="caisse-total" aria-label="فالصندوق">
         <span className="muted">{date === data.today ? "دخل للصندوق اليوم" : `دخل للصندوق نهار ${displayDate(date)}`}</span>
         <strong>{money(t.incoming)}</strong>
+        <span className="small">
+          {tickets} {tickets === 1 ? "تيكي" : "تيكيات"} · {day.cashSales.length} سلعة
+        </span>
         {last && (
           <span className="small">
             تسد على {last.time} · المصاريف {money(last.expenses)} · المتوقع فالقجر <strong>{money(last.expected)}</strong>
           </span>
         )}
-      </section>
-
-      <section className="summary four" aria-label="التفصيل">
-        <div className="stat">
-          <span className="stat-label">💵 مبيعات الكاش</span>
-          <span className="stat-value">{money(t.cashSales)}</span>
-          <span className="stat-sub">{day.cashSales.length} بيعة</span>
-        </div>
-        <div className="stat">
-          <span className="stat-label">📒 تسبيقات الكريدي</span>
-          <span className="stat-value">{money(t.advances)}</span>
-          <span className="stat-sub">{day.advances.length} تسبيق</span>
-        </div>
-        <div className="stat">
-          <span className="stat-label">🔁 دفعات الطريطات</span>
-          <span className="stat-value">{money(t.installments)}</span>
-          <span className="stat-sub">{day.installments.length} دفعة</span>
-        </div>
-        <div className="stat">
-          <span className="stat-label">🔧 الإصلاح</span>
-          <span className="stat-value">{money(t.repairs)}</span>
-          <span className="stat-sub">
-            {day.repairs.filter((r) => r.kind === "advance").length} تسبيق · {day.repairs.filter((r) => r.kind === "paid").length} تسليم
-          </span>
-        </div>
       </section>
 
       <div className="actions-row in-flow">
@@ -111,9 +88,10 @@ export function CaisseView({ data, onToast }: { data: LedgerState; onToast: (msg
                   <p>
                     <strong>{k.time}</strong>
                     {k.clerk ? ` · ${k.clerk}` : ""}
+                    {data.pendingIds.has(k.id) && <span className="pending-mark" title="كيتسنى موافقة المالك"> ⏳</span>}
                   </p>
                   <p className="small">
-                    دخل {money(round2(k.cashSales + k.advances + k.installments + (k.repairs ?? 0)))} − مصاريف {money(k.expenses)}
+                    دخل {money(k.cashSales)} − مصاريف {money(k.expenses)}
                     {k.expensesNote ? ` (${k.expensesNote})` : ""} = المتوقع <strong>{money(k.expected)}</strong>
                   </p>
                   {k.counted !== null && (
@@ -187,6 +165,8 @@ function CloseForm({
   const counted = v.counted.trim() ? parseAmount(v.counted) : null;
   const diff = counted !== null && Number.isFinite(counted) ? round2(counted - expected) : null;
   const set = (k: keyof typeof v) => (value: string) => setV((o) => ({ ...o, [k]: value }));
+  // A seller's closing with a difference waits for the owner (when the shop's rule is on).
+  const waits = data.me?.role === "seller" && approvalRules(data.ledger!)["caisse-diff"];
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -201,9 +181,6 @@ function CloseForm({
         time: now.time,
         clerk: currentSeller(),
         cashSales: totals.cashSales,
-        advances: totals.advances,
-        installments: totals.installments,
-        repairs: totals.repairs,
         expenses: expenses || 0,
         expensesNote: v.expensesNote.trim(),
         expected,
@@ -232,14 +209,8 @@ function CloseForm({
     >
       <form id="close-form" className="form-grid" noValidate onSubmit={submit}>
         <dl className="caisse-sum wide">
-          <dt>مبيعات الكاش</dt>
+          <dt>المبيعات</dt>
           <dd>{money(totals.cashSales)}</dd>
-          <dt>تسبيقات الكريدي</dt>
-          <dd>{money(totals.advances)}</dd>
-          <dt>دفعات الطريطات</dt>
-          <dd>{money(totals.installments)}</dd>
-          <dt>الإصلاح (تسبيق + تسليم)</dt>
-          <dd>{money(totals.repairs)}</dd>
           <dt>− المصاريف</dt>
           <dd>{money(expenses || 0)}</dd>
           <dt className="strong">الصافي فالقجر</dt>
@@ -255,7 +226,10 @@ function CloseForm({
           <input id="cl-counted" inputMode="decimal" dir="ltr" value={v.counted} onChange={(e) => set("counted")(e.target.value)} />
         </Field>
         {diff !== null && (
-          <p className={`alert ${diff === 0 ? "info" : "warn"} wide`}>{diff === 0 ? "مضبوط ✓" : diff > 0 ? `كاين زايد ${money(diff)}` : `ناقص ${money(-diff)}`}</p>
+          <p className={`alert ${diff === 0 ? "info" : "warn"} wide`}>
+            {diff === 0 ? "مضبوط ✓" : diff > 0 ? `كاين زايد ${money(diff)}` : `ناقص ${money(-diff)}`}
+            {diff !== 0 && waits && " · ⏳ غادي يتسنى موافقة المالك"}
+          </p>
         )}
         <Field id="cl-notes" label="ملاحظات" wide>
           <input id="cl-notes" value={v.notes} onChange={(e) => set("notes")(e.target.value)} />

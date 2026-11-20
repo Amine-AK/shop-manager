@@ -36,7 +36,7 @@ export default function LoginPage() {
           ⚡
         </span>
         <h1>ELECTRO-LMESTOUR</h1>
-        <p className="muted">كريدي الزبناء</p>
+        <p className="muted">البيع والمخزون</p>
         <div className="field">
           <label htmlFor="login">اسم الدخول</label>
           <input

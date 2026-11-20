@@ -1,21 +1,18 @@
 import "server-only";
-import { env } from "./env";
-import { applyOp, clientPhones, emptyLedger, summarize, type Ledger, type LedgerOp, type OpResult } from "./ledger";
-import { ARCHIVE_TABS, DEFAULT_CATEGORIES, HEADERS, ledgerToRows, migrateOldRows, rowsToLedger, sameRow, SHOP_KEYS, TABS, type TableKey } from "./ledger-sheet";
-import { matchesClient } from "./format";
+import { applyOp, emptyLedger, type Ledger, type LedgerOp, type OpResult } from "./ledger";
+import { DEFAULT_CATEGORIES, HEADERS, ledgerToRows, rowsToLedger, sameRow, SHOP_KEYS, TABS, type TableKey } from "./ledger-sheet";
 import { appendRows, deleteRows, ensureTabs, findTab, listTabs, readHeaders, readIds, readTables, updateRows, type Cell } from "./sheets";
-import { todayISO } from "./sheet-logic";
 
 const KEYS = Object.keys(TABS) as TableKey[];
-const ARCHIVE_KEYS = Object.keys(ARCHIVE_TABS) as (keyof typeof ARCHIVE_TABS)[];
 
+/** An empty sheet (no stock tab yet) must be set up first. */
 export async function needsSetup(): Promise<boolean> {
-  return !(await findTab(TABS.clients, true));
+  return !(await findTab(TABS.stock, true));
 }
 
 /**
- * Sheets set up before the shop features (stock, sales, cash drawer) get
- * their tabs on first use, with the default product families.
+ * Tabs added by a newer version of the app are created on first use (the
+ * product families with the default ones).
  */
 let headersChecked = false;
 
@@ -25,12 +22,7 @@ async function ensureShopTabs(): Promise<void> {
   if (!headersChecked) {
     // Tabs made by an older version: add the column titles that came later
     // (e.g. «الأيقونة» in الفئات). Once per server start.
-    // Also the customer tabs (e.g. «أرقام أخرى»), live and archived.
-    const tabs = [
-      ...SHOP_KEYS.map((k) => ({ title: TABS[k] as string, header: HEADERS[k] })),
-      { title: TABS.clients, header: HEADERS.clients },
-      { title: ARCHIVE_TABS.clients, header: HEADERS.clients },
-    ].filter((t) => have.has(t.title));
+    const tabs = SHOP_KEYS.map((k) => ({ title: TABS[k] as string, header: HEADERS[k] })).filter((t) => have.has(t.title));
     const rows = await readHeaders(tabs.map((t) => t.title));
     const fixes = tabs
       .filter((t) => t.header.some((h, i) => rows[t.title]?.[i] !== h))
@@ -59,9 +51,8 @@ export async function loadLedger(): Promise<Ledger> {
  * whatever the number of changes.
  */
 export async function commit(before: Ledger, after: Ledger): Promise<void> {
-  const today = todayISO();
-  const old = ledgerToRows(before, today);
-  const next = ledgerToRows(after, today);
+  const old = ledgerToRows(before);
+  const next = ledgerToRows(after);
 
   // Row numbers can move (another device deleted a row): read the ids right before writing.
   const needIds = KEYS.filter((k) => [...old[k].keys()].some((id) => !next[k].has(id) || !sameRow(old[k].get(id)!, next[k].get(id)!)));
@@ -121,113 +112,10 @@ export async function sync(ops: LedgerOp[], guard?: (op: LedgerOp, ledger: Ledge
 
 // ---------------------------------------------------------------- setup
 
-/** Create the tabs and move the customers of the old "Feuille 1" into them. */
-export async function setup(): Promise<{ clients: number; purchases: number; payments: number }> {
+/** Create the tabs of an empty sheet, with the default product families. */
+export async function setup(): Promise<void> {
   if (!(await needsSetup())) throw new Error("already set up");
-  let migrated: Ledger = emptyLedger();
-  const oldTab = await findTab(env.sheetName());
-  if (oldTab) {
-    const rows = (await readTables([oldTab.title], true))[oldTab.title];
-    migrated = migrateOldRows(rows);
-  }
-  await ensureTabs([
-    ...KEYS.map((k) => ({ title: TABS[k], header: HEADERS[k] })),
-    ...ARCHIVE_KEYS.map((k) => ({ title: ARCHIVE_TABS[k], header: HEADERS[k] })),
-  ]);
-  const rows = ledgerToRows({ ...migrated, categories: DEFAULT_CATEGORIES });
+  await ensureTabs(KEYS.map((k) => ({ title: TABS[k], header: HEADERS[k] })));
+  const rows = ledgerToRows({ ...emptyLedger(), categories: DEFAULT_CATEGORIES });
   for (const k of KEYS) await appendRows(TABS[k], [...rows[k].values()]);
-  return { clients: migrated.clients.length, purchases: migrated.purchases.length, payments: migrated.payments.length };
-}
-
-// ---------------------------------------------------------------- archive
-
-type ArchiveKey = keyof typeof ARCHIVE_TABS;
-
-/**
- * Move customers who finished paying more than 3 months ago (or the given
- * ones, if fully paid) to the archive tabs, with their purchases and payments.
- */
-/** `onlySpecial`: an account following only the special customers archives only those. */
-export async function archive(ids?: string[], onlySpecial = false): Promise<number> {
-  const ledger = await loadLedger();
-  const today = todayISO();
-  const chosen = summarize(ledger, today)
-    .filter((s) => !onlySpecial || s.client.type === 1)
-    .filter((s) => (ids ? ids.includes(s.client.id) && s.remaining <= 0 : s.archivable))
-    .map((s) => s.client.id);
-  if (!chosen.length) return 0;
-  const set = new Set(chosen);
-  const moving: Ledger = {
-    ...emptyLedger(),
-    clients: ledger.clients.filter((c) => set.has(c.id)),
-    purchases: ledger.purchases.filter((p) => set.has(p.clientId)),
-    payments: ledger.payments.filter((p) => set.has(p.clientId)),
-  };
-  await ensureTabs(ARCHIVE_KEYS.map((k) => ({ title: ARCHIVE_TABS[k], header: HEADERS[k] })));
-  // Copy first (skipping anything already copied by an interrupted run), then delete.
-  const rows = ledgerToRows(moving, today);
-  const already = await readIds(ARCHIVE_KEYS.map((k) => ARCHIVE_TABS[k]));
-  for (const k of ARCHIVE_KEYS) {
-    const have = new Set(already[ARCHIVE_TABS[k]]);
-    await appendRows(ARCHIVE_TABS[k], [...rows[k]].filter(([id]) => !have.has(id)).map(([, v]) => v));
-  }
-  const remaining: Ledger = {
-    ...ledger,
-    clients: ledger.clients.filter((c) => !set.has(c.id)),
-    purchases: ledger.purchases.filter((p) => !set.has(p.clientId)),
-    payments: ledger.payments.filter((p) => !set.has(p.clientId)),
-  };
-  await commit(ledger, remaining);
-  return chosen.length;
-}
-
-async function loadArchive(): Promise<{ ledger: Ledger; raw: Record<ArchiveKey, unknown[][]> }> {
-  if (!(await findTab(ARCHIVE_TABS.clients))) {
-    return { ledger: emptyLedger(), raw: { clients: [], purchases: [], payments: [] } };
-  }
-  const tables = await readTables(ARCHIVE_KEYS.map((k) => ARCHIVE_TABS[k]));
-  const raw = Object.fromEntries(ARCHIVE_KEYS.map((k) => [k, tables[ARCHIVE_TABS[k]]])) as Record<ArchiveKey, unknown[][]>;
-  return { ledger: rowsToLedger(raw), raw };
-}
-
-/** Archived customers whose name or phone matches (at most 50). */
-export async function searchArchive(query: string, onlySpecial = false): Promise<Ledger> {
-  const { ledger } = await loadArchive();
-  const found = ledger.clients.filter((c) => (!onlySpecial || c.type === 1) && matchesClient(c.name, clientPhones(c), query)).slice(0, 50);
-  const ids = new Set(found.map((c) => c.id));
-  return {
-    ...emptyLedger(),
-    clients: found,
-    purchases: ledger.purchases.filter((p) => ids.has(p.clientId)),
-    payments: ledger.payments.filter((p) => ids.has(p.clientId)),
-  };
-}
-
-/** Bring an archived customer back to the active tabs (e.g. they buy again). */
-export async function restore(clientId: string, onlySpecial = false): Promise<boolean> {
-  const { ledger } = await loadArchive();
-  const client = ledger.clients.find((c) => c.id === clientId);
-  if (!client || (onlySpecial && client.type !== 1)) return false;
-  const moving: Ledger = {
-    ...emptyLedger(),
-    clients: [client],
-    purchases: ledger.purchases.filter((p) => p.clientId === clientId),
-    payments: ledger.payments.filter((p) => p.clientId === clientId),
-  };
-  const active = await loadLedger();
-  const rows = ledgerToRows(moving);
-  for (const k of ARCHIVE_KEYS) {
-    const have = new Set(active[k].map((x) => x.id));
-    await appendRows(TABS[k], [...rows[k]].filter(([id]) => !have.has(id)).map(([, v]) => v));
-  }
-  // Then remove it from the archive.
-  const ids = await readIds(ARCHIVE_KEYS.map((k) => ARCHIVE_TABS[k]));
-  const moved = (k: ArchiveKey, id: string) => (k === "clients" ? id === clientId : moving[k].some((x) => x.id === id));
-  await deleteRows(
-    ARCHIVE_KEYS.map((k) => ({
-      title: ARCHIVE_TABS[k],
-      rows: ids[ARCHIVE_TABS[k]].flatMap((id, i) => (moved(k, id) ? [i + 2] : [])),
-    })),
-  );
-  return true;
 }

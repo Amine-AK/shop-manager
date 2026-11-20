@@ -1,4 +1,4 @@
-/* Layout: a shop ledger. Summary strip, tools, then one card per customer; one column on phones. */
+/* Layout: a shop app. Summary strip, tools, then lists and cards; one column on phones. */
 :root {
   --bg: #f3f5f4;
   --surface: #ffffff;
@@ -258,17 +258,12 @@ button, input, select { font: inherit; color: inherit; }
   .actions-row.four .btn { flex: 1 1 40%; }
   .toast { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
 
-
   .search-row {
     position: sticky; z-index: 4; top: env(safe-area-inset-top, 0px);
     margin-inline: -16px; padding: 8px 16px; background: var(--bg);
   }
   .cards { gap: 10px; }
   .card { padding: 12px; gap: 8px; }
-  .card-who h3 { font-size: 16px; }
-  .card-money { padding: 8px 10px; }
-  .card-actions .btn { min-height: 40px; }
-  .remaining { font-size: 18px; }
 }
 
 /* ---------------------------------------------------------------- search & filters */
@@ -308,33 +303,15 @@ button, input, select { font: inherit; color: inherit; }
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
   box-shadow: var(--shadow); border-inline-start: 4px solid var(--line);
 }
-.card.status-overdue { border-inline-start-color: var(--danger); }
-.card.status-today { border-inline-start-color: var(--warn); }
-.card.status-tomorrow { border-inline-start-color: var(--info); }
-.card.status-paid { border-inline-start-color: var(--accent); }
 
-.card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
-.card-who { min-width: 0; display: grid; gap: 2px; }
-.card-who h3 { font-size: 17px; overflow-wrap: anywhere; }
 .phone { color: var(--muted); font-size: 14px; text-decoration: none; justify-self: start; }
 .phone:hover { color: var(--accent); }
 .items { font-size: 14px; color: var(--muted); overflow-wrap: anywhere; }
 
 .pill { flex: none; padding: 2px 10px; border-radius: 12px; font-size: 13px; font-weight: 500; background: var(--surface-2); color: var(--muted); }
-.pill.overdue { background: var(--danger-soft); color: var(--danger); }
 .pill.today { background: var(--warn-soft); color: var(--warn); }
 .pill.tomorrow { background: var(--info-soft); color: var(--info); }
 .pill.paid { background: var(--accent-soft); color: var(--accent); }
-
-.card-money { display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); }
-.card-money > div { display: grid; gap: 1px; min-width: 0; }
-.card-money .label { font-size: 12px; color: var(--muted); }
-.remaining { font-size: 20px; font-weight: 700; }
-.card.status-overdue .remaining { color: var(--danger); }
-.card-due { text-align: end; }
-
-.card-actions { display: grid; grid-template-columns: 1.3fr 1fr 1fr 1fr; gap: 6px; }
-.card-actions .btn { padding: 0 8px; }
 
 .empty { text-align: center; padding: 32px 12px; color: var(--muted); }
 
@@ -405,40 +382,11 @@ button, input, select { font: inherit; color: inherit; }
 .field.has-error input, .field.has-error select { border-color: var(--danger); }
 input[type="date"] { min-height: 44px; }
 
-.form-total { padding: 10px 12px; border-radius: 10px; background: var(--surface-2); }
-
-.facts { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.facts > div { padding: 10px 12px; border-radius: 10px; background: var(--surface-2); min-width: 0; }
-.facts dt { font-size: 12px; color: var(--muted); }
-.facts dd { margin: 0; font-weight: 700; overflow-wrap: anywhere; }
-
 .diff { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .diff li {
   display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 4px 8px; align-items: center;
   padding: 10px 12px; border-radius: 10px; background: var(--surface-2);
 }
-.diff-label { grid-column: 1 / -1; font-size: 12px; color: var(--muted); }
-.diff-old { text-decoration: line-through; color: var(--muted); overflow-wrap: anywhere; }
-.diff-new { font-weight: 700; overflow-wrap: anywhere; }
-
-.pick-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
-.pick-tools > span { margin-inline-end: auto; }
-.pick-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.pick-list li { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
-.pick-list li.disabled { opacity: 0.65; }
-.pick-list label { display: flex; align-items: center; gap: 10px; cursor: pointer; }
-.pick-list input[type="checkbox"] { width: 20px; height: 20px; flex: none; accent-color: var(--accent); }
-.pick-main { flex: 1; min-width: 0; display: grid; }
-.pick-main strong { overflow-wrap: anywhere; }
-.pick-side { display: grid; text-align: end; font-size: 13px; }
-.pick-side .amount { font-weight: 700; font-size: 15px; }
-.pick-note { margin-top: 6px; font-size: 13px; }
-.pick-note.sent { color: var(--accent); }
-.pick-note.failed { color: var(--danger); }
-.pick-note.skipped { color: var(--warn); }
-
-.progress { display: grid; gap: 6px; font-size: 14px; }
-.progress progress { width: 100%; height: 10px; accent-color: var(--whatsapp); }
 
 /* ---------------------------------------------------------------- login */
 
@@ -496,15 +444,8 @@ input[type="date"] { min-height: 44px; }
 .conflict-info .nowrap { white-space: nowrap; }
 .sync-failed-actions { display: flex; gap: 6px; flex: none; }
 
-.card-tags { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: none; }
-.pending-pill { background: var(--warn-soft); color: var(--warn); }
-.card.is-pending { border-style: dashed; }
+/* ---------------------------------------------------------------- sale ticket (thermal printer) */
 
-/* ---------------------------------------------------------------- payment receipt (thermal printer) */
-
-.receipt-options { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
-.receipt-options .field { flex: 1 1 180px; }
-.receipt-options .field > span { font-size: 14px; font-weight: 500; }
 .segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 .segmented button { min-height: 40px; padding: 0 16px; border: 0; background: var(--surface); cursor: pointer; }
 .segmented button.on { background: var(--ink); color: var(--bg); }
@@ -531,10 +472,8 @@ input[type="date"] { min-height: 44px; }
 .ticket-line { display: flex; justify-content: space-between; gap: 3mm; }
 .ticket-line > span:first-child { flex: none; }
 .ticket-line > span:last-child { text-align: left; overflow-wrap: anywhere; font-weight: 500; }
-.ticket-strong { font-weight: 700; font-size: 1.1em; }
 .ticket-amount { display: grid; justify-items: center; gap: 0.5mm; padding: 1.5mm 0; border: 2px solid #000; border-radius: 2mm; }
 .ticket-amount strong { font-size: 1.7em; }
-.ticket-sign { margin-top: 3mm !important; }
 .ticket-thanks { text-align: center; font-weight: 700; margin-top: 1mm !important; }
 
 #print-root { display: none; }
@@ -653,100 +592,22 @@ input[type="date"] { min-height: 44px; }
   .labels-print.size-a4 .label { break-after: auto; page-break-after: auto; break-inside: avoid; }
 }
 
-/* ---------------------------------------------------------------- ledger screens */
-
-.card-open {
-  display: grid; gap: 10px; padding: 0; border: 0; background: none; text-align: start; color: inherit;
-  font: inherit; cursor: pointer; width: 100%;
-}
-.card-open:focus-visible { border-radius: 8px; }
-.card-actions.two { grid-template-columns: 1.3fr 1fr; }
-
-/* Customer list on phones: one compact line per customer (ClientRow in Dashboard.tsx). */
-.client-rows {
-  list-style: none; margin: 0; padding: 0; background: var(--surface);
-  border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
-}
-.client-row { display: flex; align-items: center; gap: 4px; padding-inline-end: 6px; }
-.client-row + .client-row { border-top: 1px solid var(--line); }
-.client-row-open {
-  flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 10px 12px;
-  border: 0; background: none; color: inherit; font: inherit; text-align: start; cursor: pointer;
-}
-.client-row-open:active { background: var(--surface-2); }
-.avatar {
-  flex: none; width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center;
-  font-weight: 700; font-size: 18px; background: var(--surface-2); color: var(--muted);
-}
-.status-overdue .avatar { background: var(--danger-soft); color: var(--danger); }
-.status-today .avatar { background: var(--warn-soft); color: var(--warn); }
-.status-tomorrow .avatar { background: var(--info-soft); color: var(--info); }
-.status-paid .avatar { background: var(--accent-soft); color: var(--accent); }
-.row-main { flex: 1; min-width: 0; display: grid; gap: 2px; }
-.row-name { font-weight: 700; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row-sub { display: flex; align-items: baseline; gap: 4px; min-width: 0; font-size: 13px; color: var(--muted); white-space: nowrap; }
-.row-due { flex: none; }
-.row-item { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.row-more { flex: none; }
-.status-overdue .row-due { color: var(--danger); font-weight: 600; }
-.status-today .row-due { color: var(--warn); font-weight: 600; }
-.row-amount { flex: none; display: grid; justify-items: end; gap: 2px; }
-.row-remaining { font-weight: 800; font-size: 16px; white-space: nowrap; }
-.status-overdue .row-remaining { color: var(--danger); }
-.status-today .row-remaining { color: var(--warn); }
-.status-paid .row-remaining { color: var(--accent); font-size: 14px; }
-.row-date { font-size: 12px; color: var(--muted); }
-.row-pay {
-  flex: none; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line);
-  background: var(--surface); font-size: 18px; cursor: pointer;
-}
-.row-pay:active { background: var(--accent-soft); }
-
-.archive-banner {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 10px 12px; border-radius: 10px; background: var(--info-soft); color: var(--info); font-size: 14px;
-}
-
 .warn-text { color: var(--warn); }
 
-.form-section { font-size: 15px; font-weight: 700; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line); }
 .check { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
 .check input { width: 18px; height: 18px; accent-color: var(--accent); }
-.installment-hint { display: grid; gap: 10px; padding: 12px; border-radius: 10px; background: var(--surface-2); font-size: 14px; }
 
 .picker { display: grid; gap: 6px; }
-.picker-current { font-size: 15px; }
 .picker input { width: 100%; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
-.picker-list { list-style: none; margin: 0; padding: 4px; border: 1px solid var(--line); border-radius: 10px; display: grid; gap: 2px; max-height: 240px; overflow-y: auto; }
-.picker-list button {
-  width: 100%; display: flex; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 0; border-radius: 8px;
-  background: none; cursor: pointer; text-align: start;
-}
-.picker-list button:hover, .picker-list button[aria-selected="true"] { background: var(--accent-soft); }
 
-.detail-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-.facts.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.installment-box {
-  display: flex; justify-content: space-between; align-items: center; gap: 10px;
-  padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); font-size: 14px;
-}
-.installment-box > div { min-width: 0; display: grid; gap: 2px; }
-.detail-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-@media (min-width: 521px) { .detail-actions { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-.detail-section { display: grid; gap: 8px; }
-.detail-section h3 { font-size: 15px; }
 .rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .rows li {
   display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: center;
   padding: 8px 10px; border-radius: 10px; background: var(--surface-2);
 }
-.row-main { display: grid; gap: 1px; min-width: 0; overflow-wrap: anywhere; }
-.row-amount { font-size: 14px; font-weight: 500; white-space: nowrap; }
 .row-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 14px; }
 .link-btn { border: 0; background: none; padding: 4px 0; color: var(--accent); font-size: 14px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .link-btn.danger-text { color: var(--danger); }
-.detail-footer { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
-.detail-footer:empty { display: none; }
 .plain-list { margin: 0; padding-inline-start: 18px; display: grid; gap: 4px; }
 
 .segmented.wide-seg { display: flex; }
@@ -754,29 +615,17 @@ input[type="date"] { min-height: 44px; }
 .setup-card { width: min(480px, 100%); text-align: start; justify-items: stretch; }
 .setup-card h1, .setup-card .brand-mark { justify-self: center; text-align: center; }
 
-/* Statement (كشف الحساب) on the thermal ticket */
-.ticket-section { font-weight: 700; }
+/* Lines of the sale ticket (SaleTicket.tsx) */
 .ticket-table { width: 100%; border-collapse: collapse; }
 .ticket-table td { padding: 0.6mm 0; vertical-align: top; }
 .ticket-table .t-date { white-space: nowrap; width: 1%; }
 /* The date cell is left-to-right; space the item cell next to it instead. */
 .ticket-table td + td { padding-inline-start: 2.5mm; }
 .ticket-table .t-num { text-align: left; white-space: nowrap; font-weight: 500; padding-inline-start: 2mm; }
-.t-sub { display: block; font-size: 0.85em; }
 
-/* WhatsApp message preview in the receipt window */
 a.btn { text-decoration: none; }
 .steps { margin: 0; padding-inline-start: 22px; display: grid; gap: 10px; font-size: 16px; }
 .steps.small-steps { font-size: 14px; gap: 6px; }
-
-.wa-preview { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 14px; }
-.wa-preview summary { cursor: pointer; color: var(--whatsapp); font-weight: 500; }
-.wa-preview .btn { margin-top: 8px; }
-.wa-preview p { margin: 6px 0 0; }
-.wa-preview pre {
-  margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere;
-  font-family: var(--font); font-size: 14px; line-height: 1.6;
-}
 
 /* ---------------------------------------------------------------- shop: sections */
 
@@ -803,7 +652,6 @@ a.btn { text-decoration: none; }
 .sell-view { display: grid; }
 .sale-form { display: grid; gap: 12px; min-width: 0; }
 .sale-form > *, .modal-body > * { min-width: 0; }
-.sale-type button { font-size: 16px; min-height: 46px; }
 .product-search { position: relative; }
 .product-results {
   list-style: none; margin: 4px 0 0; padding: 4px; display: grid; gap: 2px;
@@ -821,7 +669,6 @@ a.btn { text-decoration: none; }
 .pr-free { color: var(--accent); font-weight: 500; }
 .stock-badge { display: inline-block; padding: 1px 8px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 500; }
 .stock-badge.out { background: var(--danger-soft); color: var(--danger); }
-.quick-chips .chip { border-style: dashed; }
 
 .cart { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .cart-line { display: grid; gap: 8px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
@@ -842,7 +689,6 @@ a.btn { text-decoration: none; }
 .cart-cost { display: flex; align-items: center; gap: 6px; flex: 1 1 140px; }
 .cart-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .cost-badge { color: var(--muted); font-size: 12px; padding: 1px 8px; border-radius: 10px; background: var(--surface-2); }
-.sale-credit { display: grid; gap: 12px; padding: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
 
 .checkout {
   position: sticky; z-index: 3; bottom: 0; display: grid; gap: 10px; padding: 12px 16px;
@@ -905,8 +751,6 @@ a.btn { text-decoration: none; }
 
 .report-category { flex: 0 1 190px; min-height: 44px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 .profit-stat .stat-value { color: var(--accent); }
-.split-bar { height: 8px; border-radius: 4px; background: var(--info); overflow: hidden; margin: 4px 0; }
-.split-cash { display: block; height: 100%; background: var(--accent); }
 .bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .bar-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
 .bar-head .amount { margin-inline-start: auto; }
@@ -939,15 +783,10 @@ a.btn { text-decoration: none; }
   .views + .content { padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
 }
 
-/* ---------------------------------------------------------------- new customer steps */
+/* ---------------------------------------------------------------- one-column forms */
 
 .form-grid.one-col { grid-template-columns: 1fr; }
-.done-step { display: grid; justify-items: center; gap: 8px; text-align: center; padding: 16px 0; }
-.done-check { font-size: 44px; line-height: 1; }
-.done-question { font-size: 18px; font-weight: 700; }
 .pr-hint { padding: 6px 10px 2px; }
-.form-section-title { font-weight: 700; font-size: 15px; }
-.first-instalment { display: grid; gap: 10px; }
 
 /* ---------------------------------------------------------------- sale: family buttons */
 
@@ -961,8 +800,6 @@ a.btn { text-decoration: none; }
 .cat-icon { font-size: 32px; line-height: 1.1; }
 .cat-name { font-size: 14px; font-weight: 700; line-height: 1.3; }
 .cat-count { font-size: 12px; color: var(--muted); }
-.pr-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 6px 2px 10px; }
-.pr-head strong { flex: 1; }
 @media (max-width: 640px) {
   .cat-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
   .cat-tile { min-height: 88px; }
@@ -1019,8 +856,6 @@ a.btn { text-decoration: none; }
 }
 .chip-emoji { font-size: 15px; line-height: 1; }
 .cat-img.chip-emoji { width: 20px; height: 20px; border-radius: 5px; }
-.pr-head-icon { display: inline-block; vertical-align: middle; }
-.cat-img.pr-head-icon { width: 22px; height: 22px; border-radius: 5px; }
 .cat-preview { display: flex; justify-content: center; }
 .cat-preview .cat-tile { width: 130px; cursor: default; }
 .emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 6px; margin-bottom: 8px; }
@@ -1037,52 +872,6 @@ a.btn { text-decoration: none; }
 .cat-img.cat-list-icon { width: 40px; height: 40px; }
 .cat-list-name { display: grid; flex: 1; min-width: 0; }
 
-/* ---------------------------------------------------------------- small red delete button (client account) */
-
-.delete-mini {
-  margin-inline-start: auto; min-height: 30px; padding: 2px 10px; border-radius: 8px; cursor: pointer;
-  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent); background: var(--danger-soft); color: var(--danger);
-  font-size: 13px; font-weight: 500;
-}
-.delete-mini:hover:not(:disabled) { background: var(--danger); color: #fff; }
-.delete-mini:disabled { opacity: 0.5; cursor: not-allowed; }
-.call-mini {
-  display: inline-flex; align-items: center; min-height: 30px; padding: 2px 12px; border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-soft); color: var(--accent);
-  font-size: 13px; font-weight: 600; text-decoration: none;
-}
-.call-mini:hover { background: var(--accent); color: #fff; }
-/* A customer's other numbers: folded behind «+N ▾», a small list when opened. */
-.more-phones { position: relative; }
-.more-phones summary {
-  list-style: none; cursor: pointer; min-height: 30px; display: inline-flex; align-items: center; gap: 4px;
-  padding: 2px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface);
-  color: var(--muted); font-size: 13px; font-weight: 600;
-}
-.more-phones summary::-webkit-details-marker { display: none; }
-.more-phones[open] summary { color: var(--accent); border-color: var(--accent); }
-.more-phones ul {
-  position: absolute; z-index: 5; top: calc(100% + 4px); inset-inline-start: 0; min-width: 190px;
-  margin: 0; padding: 4px; list-style: none; border: 1px solid var(--line); border-radius: 10px;
-  background: var(--surface); box-shadow: 0 6px 20px rgb(0 0 0 / 15%);
-}
-.more-phones li a {
-  display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 10px;
-  border-radius: 8px; color: var(--ink); text-decoration: none; font-size: 15px;
-}
-.more-phones li a:hover { background: var(--accent-soft); color: var(--accent); }
-.phone-list { display: grid; gap: 6px; }
-.phone-row { display: flex; gap: 6px; }
-.phone-row input { flex: 1; min-width: 0; }
-.phone-row .btn { flex: none; width: 44px; padding: 0; }
-.phone-list .link-btn { justify-self: start; }
-
-/* Next due date typed by hand outside the rules: allowed, but very visible. */
-.due-warning {
-  margin: 0; padding: 10px 12px; border-radius: 10px; border: 2px solid var(--danger);
-  background: var(--danger-soft); color: var(--danger); font-size: 22px; font-weight: 800; line-height: 1.35;
-}
-
 /* ---------------------------------------------------------------- product codes (QR / barcode / S/N) */
 
 .field textarea, .code-row textarea {
@@ -1098,64 +887,17 @@ a.btn { text-decoration: none; }
 .services { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin: 0; display: grid; gap: 8px; }
 .services legend { font-weight: 700; padding: 0 6px; }
 
-/* ---------------------------------------------------------------- الإصلاح (RepairsView.tsx) */
-
-.repair-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.repair-row { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); border-inline-start: 4px solid var(--line); }
-.repair-row.tone-ready { border-inline-start-color: var(--accent); }
-.repair-row.tone-work { border-inline-start-color: var(--info); }
-.repair-row.tone-wait { border-inline-start-color: var(--warn); }
-.repair-row.tone-bad { border-inline-start-color: var(--danger); }
-.repair-open {
-  width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 0; background: none;
-  color: inherit; font: inherit; text-align: start; cursor: pointer;
-}
-.repair-thumb { flex: none; width: 52px; height: 52px; border-radius: 10px; object-fit: cover; background: var(--surface-2); }
-.empty-thumb { display: grid; place-items: center; font-size: 24px; }
-.repair-main { flex: 1; min-width: 0; display: grid; gap: 2px; }
-.repair-device { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.repair-sub { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.repair-side { flex: none; display: grid; justify-items: end; gap: 4px; }
-.repair-status { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); white-space: nowrap; }
-.repair-status.tone-ready { background: var(--accent-soft); color: var(--accent); }
-.repair-status.tone-work { background: var(--info-soft); color: var(--info); }
-.repair-status.tone-wait { background: var(--warn-soft); color: var(--warn); }
-.repair-status.tone-bad { background: var(--danger-soft); color: var(--danger); }
-.repair-left { font-size: 13px; font-weight: 700; white-space: nowrap; }
-.repair-photo-field { display: flex; align-items: center; gap: 12px; }
-.repair-photo { width: 96px; height: 96px; border-radius: 12px; object-fit: cover; background: var(--surface-2); flex: none; }
-.repair-photo.empty-photo { display: grid; place-items: center; font-size: 32px; }
-.repair-photo.big { width: 100%; height: auto; max-height: 50vh; object-fit: contain; }
-.repair-photo-actions { display: grid; gap: 6px; justify-items: start; }
-.segmented.repair-statuses { display: grid; grid-template-columns: repeat(3, 1fr); overflow: hidden; }
-.repair-statuses button { padding: 0 6px; white-space: nowrap; }
-.repair-code { display: grid; gap: 8px; justify-items: center; padding: 10px; border-radius: 10px; background: #fff; }
-.repair-code .ean13 { width: min(100%, 280px); height: auto; }
-
 /* الميزانية: الصندوق / التقارير switch (Dashboard.tsx). */
 .budget-tabs { margin-bottom: 12px; }
 .budget-tabs button { min-height: 44px; font-weight: 600; }
 
-/* خدمة الشركة (ClaimsView.tsx): products sold to choose from in the request form. */
-.claim-pick { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 220px; overflow-y: auto; }
-.claim-pick button {
-  width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 12px; min-height: 44px;
-  border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: inherit; font: inherit; text-align: start; cursor: pointer;
-}
-.claim-pick button.on { border-color: var(--accent); background: var(--accent-soft); }
-.claim-pick strong { min-width: 0; overflow-wrap: anywhere; }
-.claim-pick .small { flex: none; }
-.contact-form { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
-/* Number of late requests on a tab. */
+/* A count on a tab (notebook reminders, unread lines). */
 .tab-count {
   display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-inline-start: 6px;
   border-radius: 10px; background: var(--danger); color: #fff; font-size: 12px; font-weight: 700;
 }
-.claim-flag { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--warn-soft); color: var(--warn); white-space: nowrap; }
-.claim-flag.late { background: var(--danger-soft); color: var(--danger); }
-.row-main .claim-flag { justify-self: start; }
 
-/* طلبات الموافقة (ApprovalsView.tsx): sellers' credit changes waiting for the owner. */
+/* طلبات الموافقة (ApprovalsView.tsx): sellers' changes waiting for the owner. */
 .approvals-bar {
   width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 10px 0 0; padding: 12px 14px;
   border: 1px solid var(--warn); border-radius: 12px; background: var(--warn-soft); color: var(--warn); font: inherit; text-align: start; cursor: pointer;
@@ -1175,10 +917,6 @@ a.btn { text-decoration: none; }
 .approval-main { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
 .approval-actions { display: flex; gap: 8px; }
 .approval-actions .btn { flex: 1; }
-.pending-flag { justify-self: start; font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--warn-soft); color: var(--warn); white-space: nowrap; }
-.pending-note { margin: 10px 0; }
-.client-row .pending-dot, .card .pending-dot { margin-inline-start: 6px; font-size: 13px; }
-.pending-note p { margin: 0; }
 .approval-note { justify-self: start; margin-top: 2px; padding: 4px 8px; border-radius: 8px; background: var(--info-soft); color: var(--info); font-size: 13px; overflow-wrap: anywhere; }
 .approval-note.owner { background: var(--accent-soft); color: var(--accent); }
 .approval-actions .link-btn { flex: none; white-space: nowrap; }
@@ -1236,9 +974,6 @@ a.btn { text-decoration: none; }
 .note-notify { display: flex; }
 .note-line.fresh { background: color-mix(in srgb, var(--info-soft) 75%, transparent); }
 .note-line.fresh .note-text { font-weight: 700; }
-/* Special customers (type 1, column «نوع الزبون»). */
-.special-star { margin-inline-start: 4px; font-size: 13px; }
-.pill.special { background: var(--warn-soft); color: var(--warn); }
 
 /* Sale: search + scan stay at the top while the page scrolls (SaleForm.tsx). */
 .sale-top {
@@ -1258,8 +993,6 @@ a.btn { text-decoration: none; }
 .modal.page .modal-body { width: 100%; max-width: 1100px; margin-inline: auto; }
 .modal.page .modal-foot { justify-content: center; }
 .cat-switch-wrap { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 520px; }
-.cat-switch-icon { font-size: 22px; line-height: 1; flex: none; }
-.cat-img.cat-switch-icon { width: 28px; height: 28px; border-radius: 6px; }
 .cat-switch {
   flex: 1; min-width: 0; min-height: 42px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px;
   background: var(--surface); color: var(--ink); font: inherit; font-size: 17px; font-weight: 700;
@@ -1285,71 +1018,18 @@ a.btn { text-decoration: none; }
 .cat-more { grid-column: 1 / -1; text-align: center; padding: 10px; }
 .cat-page-done { min-height: 50px; font-size: 16px; max-width: 520px; }
 
-/* عطاك: amounts the customer likely hands over, change, short → rest on credit. */
+/* عطاك: amounts the customer likely hands over, change, short. */
 .given-tools { display: grid; gap: 6px; }
 .given-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
 .given-chips .chip { flex: none; }
 .given-result { margin: 0; font-size: 16px; }
 .given-result.short { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
 .given-result.short p { margin: 0; }
-.cash-switch { justify-items: start; }
-.cash-switch p { margin: 0; }
-/* Customer page: their repairs and after-sales requests (ClientDetail.tsx). */
-.follow-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
-.follow-head h3 { margin: 0; }
-.follow-actions { display: flex; gap: 6px; flex-wrap: wrap; }
-.follow-rows > li { padding: 0; }
-.follow-open {
-  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px;
-  border: 0; background: none; color: inherit; font: inherit; text-align: start; cursor: pointer; border-radius: 10px;
-}
-.follow-open:hover { background: var(--surface-2); }
-/* After-sales requests in الكريدي: a card like «متأخرين», a red bar when late, a badge per customer. */
-.claim-stat { font: inherit; color: inherit; text-align: start; cursor: pointer; }
-.claim-stat:hover { border-color: var(--accent); }
-.claim-stat.late { border-color: var(--danger); background: var(--danger-soft); box-shadow: inset 0 0 0 1px var(--danger); }
-.claim-stat.late .stat-label { color: var(--danger); font-weight: 700; }
-.claims-late-bar {
-  width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 10px 0 0; padding: 12px 14px;
-  border: 2px solid var(--danger); border-radius: 12px; background: var(--danger-soft); color: var(--danger); font: inherit; text-align: start; cursor: pointer;
-}
-.row-claim { margin-inline-start: 6px; font-size: 11px; vertical-align: middle; }
-@media (max-width: 640px) {
-  /* Owner: the total on its own line, then late / soon / brands' services side by side. */
-  .summary.four { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .summary.four .stat:first-child { grid-column: 1 / -1; grid-template-columns: 1fr auto; align-items: baseline; }
-  .summary.four .stat:first-child .stat-value { grid-row: 1 / 3; grid-column: 2; font-size: 20px; }
-  .summary.trio { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .summary.trio .stat:first-child { grid-column: auto; display: grid; grid-template-columns: none; }
-  .summary.trio .stat:first-child .stat-value { grid-row: auto; grid-column: auto; font-size: 17px; }
-}
-/* Reminders one by one (RemindersDialog.tsx): call / WhatsApp per late customer. */
-.remind-list > li { display: grid; gap: 8px; padding: 10px 12px; }
-.remind-row { display: flex; align-items: center; gap: 10px; }
-.remind-row .pick-main { flex: 1; min-width: 0; }
-.remind-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.remind-actions .btn { flex: 1 1 120px; text-decoration: none; }
-.remind-done { flex-basis: 100%; font-size: 12px; color: var(--accent); }
-.remind-list > li.contacted { background: color-mix(in srgb, var(--accent-soft) 45%, transparent); }
 /* A newer build of the app is online (lib/app-version.ts). */
 .update-bar {
   display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; padding: 10px 14px;
   border: 2px solid var(--info); border-radius: 12px; background: var(--info-soft); color: var(--info); font-weight: 500;
 }
-/* Reminders' texts and voice messages (ReminderSettings.tsx, RemindersDialog.tsx). */
-.var-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.var-chips .chip { min-height: 32px; padding: 0 10px; font-size: 13px; border-style: dashed; }
-.template-peek { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.template-preview pre { white-space: pre-wrap; margin: 6px 0 0; font: inherit; font-size: 14px; }
-.audio-list .row-main { gap: 6px; }
-.audio-player { width: 100%; max-width: 320px; height: 36px; }
-.audio-new { display: grid; gap: 8px; }
-.audio-new input { min-height: 42px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); font: inherit; }
-.audio-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
-.audio-buttons .btn { flex: 1 1 140px; }
-.remind-choose { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; align-items: end; }
-.remind-choose select { min-height: 42px; width: 100%; padding: 0 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); font: inherit; }
-.remind-choose .link-btn { grid-column: 1 / -1; justify-self: start; }
 /* Notebook reminders (⏰): the bar over the app, the box on top of الكناش, the chip on a line. */
 .remind-due-bar {
   width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; padding: 12px 14px;
@@ -1367,8 +1047,11 @@ a.btn { text-decoration: none; }
 .remind-due-actions .btn { flex: 1 1 auto; text-decoration: none; }
 .note-remind { font-size: 12px; padding: 1px 6px; border-radius: 6px; background: var(--info-soft); color: var(--info); margin-inline-end: 4px; white-space: nowrap; }
 .note-remind.due { background: var(--danger-soft); color: var(--danger); font-weight: 700; }
-.remind-picker { display: grid; gap: 4px; }
 .remind-chips .chip { min-height: 28px; padding: 0 10px; font-size: 13px; }
 /* «⏰ ذكّرني»: the system date-time field covers the chip, invisible (NotesView.tsx RemindPicker). */
 .remind-btn { position: relative; overflow: hidden; display: inline-flex; align-items: center; cursor: pointer; }
 .remind-btn input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: 0; padding: 0; }
+
+/* ⏳ next to a record changed by a seller and waiting for the owner. */
+.pending-mark { color: var(--warn); }
+.rules { display: grid; gap: 10px; margin: 12px 0 0; padding: 0; border: 0; }

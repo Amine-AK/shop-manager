@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { approvalChain } from "@/lib/approval-deps";
-import { describe, waitingOf } from "@/lib/approvals";
-import { nowParts, type Approval, type ApprovalStatus } from "@/lib/ledger";
+import { APPROVAL_RULES, approvalRules, describe, waitingOf, type ApprovalRules } from "@/lib/approvals";
+import { APPROVAL_RULES_KEY, nowParts, type Approval, type ApprovalStatus } from "@/lib/ledger";
 import { displayDateTime } from "@/lib/receipt";
 import { Modal } from "./Modal";
 import type { LedgerState } from "./useLedger";
@@ -32,11 +32,11 @@ const when = (iso: string) => {
 };
 
 /**
- * In الكريدي: what the sellers changed and waits for the owner. The owner accepts
- * (the change goes into the sheet) or refuses with a reason; a seller only sees
- * where their changes are. `clientId`: only this customer's.
+ * What the sellers changed and waits for the owner (from the bar in البيع and
+ * المخزون). The owner accepts (the change goes into the sheet) or refuses with a
+ * reason; a seller only sees where their changes are.
  */
-export function ApprovalsDialog({ data, clientId, onClose, onToast }: { data: LedgerState; clientId?: string; onClose: () => void; onToast: (msg: string) => void }) {
+export function ApprovalsDialog({ data, onClose, onToast }: { data: LedgerState; onClose: () => void; onToast: (msg: string) => void }) {
   const ledger = data.ledger!;
   const owner = data.me?.role === "owner";
   const [tab, setTab] = useState<ApprovalStatus>("كتسنى");
@@ -46,12 +46,12 @@ export function ApprovalsDialog({ data, clientId, onClose, onToast }: { data: Le
 
   const info = (a: Approval) => describe(a.op, ledger);
   const list = ledger.approvals
-    .filter((a) => a.status === tab && (!clientId || info(a).clientId === clientId))
+    .filter((a) => a.status === tab)
     .sort((a, b) => (tab === "كتسنى" ? a.createdAt.localeCompare(b.createdAt) : b.decidedAt.localeCompare(a.decidedAt)))
     .slice(0, tab === "كتسنى" ? undefined : 100);
   const groups = new Map<string, Approval[]>();
-  for (const a of list) groups.set(info(a).clientId, [...(groups.get(info(a).clientId) ?? []), a]);
-  const counts = Object.fromEntries(TABS.map((t) => [t.value, ledger.approvals.filter((a) => a.status === t.value && (!clientId || info(a).clientId === clientId)).length]));
+  for (const a of list) groups.set(info(a).targetId, [...(groups.get(info(a).targetId) ?? []), a]);
+  const counts = Object.fromEntries(TABS.map((t) => [t.value, ledger.approvals.filter((a) => a.status === t.value).length]));
 
   /** Accept these (oldest first); one already taken with an earlier one's needs is not sent twice. */
   function accept(items: Approval[], note = "") {
@@ -61,7 +61,7 @@ export function ApprovalsDialog({ data, clientId, onClose, onToast }: { data: Le
     for (const a of [...items].sort((x, y) => x.createdAt.localeCompare(y.createdAt))) {
       if (taken.has(a.id)) continue;
       for (const x of approvalChain(waiting, a)) taken.add(x.id);
-      data.run(`✓ موافقة · ${info(a).client} · ${info(a).text}`, { type: "approval.decide", id: a.id, decision: "accept", reason: note });
+      data.run(`✓ موافقة · ${info(a).target} · ${info(a).text}`, { type: "approval.decide", id: a.id, decision: "accept", reason: note });
       n++;
     }
     if (n) onToast(taken.size > 1 ? `✓ تقبلو ${taken.size} تعديلات` : "✓ تقبل");
@@ -92,8 +92,8 @@ export function ApprovalsDialog({ data, clientId, onClose, onToast }: { data: Le
     <Modal title={owner ? "⏳ تعديلات البائعين: الموافقة" : "⏳ التعديلات ديالي عند المالك"} onClose={onClose}>
       <p className="muted small">
         {owner
-          ? "هادو تعديلات الكريدي لي دارو البائعين. ما كيدخلو للـ Google Sheet حتى توافق. الزبون كيشوف المبلغ منقوص فالوصل، والفلوس كتحسب فالصندوق."
-          : "تعديلات الكريدي ديالك كيتسناو موافقة المالك قبل ما يتسجلو فالـ Google Sheet."}
+          ? "هادو تعديلات دارو البائعين وكيتسناو الموافقة ديالك قبل ما يدخلو للـ Google Sheet. تقدر تختار شنو كيتسنى موافقتك من ⚙️."
+          : "هاد التعديلات ديالك كيتسناو موافقة المالك قبل ما يتسجلو فالـ Google Sheet."}
       </p>
       <div className="chips" role="group" aria-label="الحالة">
         {TABS.map((t) => (
@@ -103,10 +103,10 @@ export function ApprovalsDialog({ data, clientId, onClose, onToast }: { data: Le
         ))}
       </div>
       {list.length === 0 && <p className="empty">{tab === "كتسنى" ? "ما كاين حتى تعديل كيتسنى ✓" : "ما كاين والو هنا."}</p>}
-      {[...groups.entries()].map(([cid, items]) => (
-        <section key={cid || "none"} className="approval-group" aria-label={info(items[0]).client || "زبون"}>
+      {[...groups.entries()].map(([tid, items]) => (
+        <section key={tid || "none"} className="approval-group" aria-label={info(items[0]).target || "سلعة"}>
           <div className="approval-head">
-            <h3>👤 {info(items[0]).client || "زبون"}</h3>
+            <h3>{info(items[0]).target || "—"}</h3>
             {owner && tab === "كتسنى" && items.length > 1 && (
               <button type="button" className="btn primary small-btn" onClick={() => accept(items)} disabled={items.some((a) => data.brokenApprovals.has(a.id))}>
                 ✓ قبل الكل ({items.length})
@@ -146,16 +146,16 @@ export function ApprovalsDialog({ data, clientId, onClose, onToast }: { data: Le
                       <button type="button" className="btn primary small-btn" onClick={() => accept([a])} disabled={Boolean(broken)}>
                         ✓ قبول
                       </button>
-                      <button type="button" className="btn danger-ghost small-btn" onClick={() => open({ kind: "refuse", items: [a], label: `${i.client} · ${i.text}` })}>
+                      <button type="button" className="btn danger-ghost small-btn" onClick={() => open({ kind: "refuse", items: [a], label: `${i.target} · ${i.text}` })}>
                         ✕ رفض
                       </button>
-                      <button type="button" className="link-btn" onClick={() => open({ kind: "accept", items: [a], label: `${i.client} · ${i.text}` })} disabled={Boolean(broken)}>
+                      <button type="button" className="link-btn" onClick={() => open({ kind: "accept", items: [a], label: `${i.target} · ${i.text}` })} disabled={Boolean(broken)}>
                         📝 قبول بملاحظة
                       </button>
                     </div>
                   )}
                   {!owner && a.status === "كتسنى" && a.op.by === myName && (
-                    <button type="button" className="link-btn approval-note-btn" onClick={() => open({ kind: "note", items: [a], label: `${i.client} · ${i.text}` })}>
+                    <button type="button" className="link-btn approval-note-btn" onClick={() => open({ kind: "note", items: [a], label: `${i.target} · ${i.text}` })}>
                       {a.note ? "✏️ بدل الملاحظة" : "📝 زيد ملاحظة للمالك"}
                     </button>
                   )}
@@ -181,7 +181,7 @@ export function ApprovalsDialog({ data, clientId, onClose, onToast }: { data: Le
           }
         >
           <p className="lead">{writing.label}</p>
-          {writing.kind === "refuse" && <p className="muted small">التعديلات لي مبنية على هادا (مثلا دفعة ديال زبون جديد) كيترفضو معاه.</p>}
+          {writing.kind === "refuse" && <p className="muted small">التعديلات لي مبنية على هادا (مثلا تعديل آخر ديال نفس السلعة) كيترفضو معاه.</p>}
           <div className="field">
             <label htmlFor="approval-note">
               {writing.kind === "refuse" ? "السبب (كيشوفو البائع)" : writing.kind === "accept" ? "الملاحظة (كيشوفها البائع)" : "الملاحظة (كيشوفها المالك قبل ما يوافق)"}
@@ -195,10 +195,10 @@ export function ApprovalsDialog({ data, clientId, onClose, onToast }: { data: Le
               autoFocus
               placeholder={
                 writing.kind === "refuse"
-                  ? "مثلا: المبلغ غلط، الزبون ما خلصش…"
+                  ? "مثلا: الثمن غلط، السلعة كاينة…"
                   : writing.kind === "accept"
-                    ? "مثلا: مزيان، عيط عليه السبت…"
-                    : "مثلا: خلص نص اليوم والباقي السبت…"
+                    ? "مثلا: مزيان، المرة الجاية قولها ليا قبل…"
+                    : "مثلا: الزبون رجع السلعة، الكرطونة مقطعة…"
               }
             />
           </div>
@@ -208,7 +208,7 @@ export function ApprovalsDialog({ data, clientId, onClose, onToast }: { data: Le
   );
 }
 
-/** The bar in الكريدي: what waits for the owner (owner), or for the seller where their changes are. */
+/** The bar in البيع and المخزون: what waits for the owner (owner), or for the seller where their changes are. */
 export function ApprovalsBar({ data, onOpen }: { data: LedgerState; onOpen: () => void }) {
   const ledger = data.ledger;
   if (!ledger || !data.me || data.me.role === "stock") return null;
@@ -219,14 +219,14 @@ export function ApprovalsBar({ data, onOpen }: { data: LedgerState; onOpen: () =
   // The owner sees how many waiting changes came with a note from the seller.
   const noted = waiting.filter((a) => a.note).length;
   if (!waiting.length && !refused.length && !notes.length) return null;
-  const clients = new Set(waiting.map((a) => describe(a.op, ledger).clientId)).size;
+
   return (
     <button type="button" className={`approvals-bar ${owner && waiting.length ? "attention" : ""}`} onClick={onOpen}>
       <span>
         {waiting.length > 0 &&
           (owner ? (
             <>
-              ⏳ <strong>{clients}</strong> زبون عندهم <strong>{waiting.length}</strong> تعديل كيتسنى الموافقة ديالك
+              ⏳ <strong>{waiting.length}</strong> تعديل ديال البائعين كيتسنى الموافقة ديالك
               {noted > 0 && <> · 📝 {noted} فيهم ملاحظة</>}
             </>
           ) : (
@@ -247,5 +247,43 @@ export function ApprovalsBar({ data, onOpen }: { data: LedgerState; onOpen: () =
       </span>
       <span className="approvals-go">{owner && waiting.length ? "شوف ووافق ←" : "شوف ←"}</span>
     </button>
+  );
+}
+
+/** ⚙️ «⏳ شنو كيتسنى موافقتي» (owner): which sellers' changes wait for the owner. */
+export function ApprovalRulesDialog({ data, onClose, onToast }: { data: LedgerState; onClose: () => void; onToast: (msg: string) => void }) {
+  const [rules, setRules] = useState<ApprovalRules>(() => approvalRules(data.ledger!));
+
+  function save() {
+    data.run("⚙️ قواعد الموافقة", { type: "setting.save", key: APPROVAL_RULES_KEY, value: JSON.stringify(rules) });
+    onToast("✓ تسجلات");
+    onClose();
+  }
+
+  return (
+    <Modal
+      title="⏳ شنو كيتسنى موافقتي"
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="btn" onClick={onClose}>
+            رجوع
+          </button>
+          <button type="button" className="btn primary" onClick={save}>
+            حفظ
+          </button>
+        </>
+      }
+    >
+      <p className="muted small">ملي يدير البائع وحدة من هادو، ما كتتسجلش فالـ Google Sheet حتى توافق نتا. لي ما مختاراش كتتسجل ديريكت.</p>
+      <fieldset className="rules">
+        {APPROVAL_RULES.map((r) => (
+          <label key={r.key} className="check">
+            <input type="checkbox" checked={rules[r.key]} onChange={(e) => setRules({ ...rules, [r.key]: e.target.checked })} />
+            {r.label}
+          </label>
+        ))}
+      </fieldset>
+    </Modal>
   );
 }

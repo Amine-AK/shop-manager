@@ -1,13 +1,13 @@
 import { handleError } from "@/lib/api";
 import { ledgerFor, requireUser } from "@/lib/access";
-import { env, watiConfigured } from "@/lib/env";
+import { env } from "@/lib/env";
 import { loadLedger, needsSetup } from "@/lib/store";
-import { todayISO } from "@/lib/sheet-logic";
+import { todayISO } from "@/lib/dates";
 import { APP_VERSION } from "@/lib/app-version";
 
 export const dynamic = "force-dynamic";
 
-/** The whole active ledger (archived customers are not included). */
+/** The whole ledger, as this account may see it. */
 export async function GET() {
   const me = await requireUser();
   if (me instanceof Response) return me;
@@ -18,7 +18,6 @@ export async function GET() {
       ledger: ledgerFor(me, await loadLedger()),
       today: todayISO(),
       me,
-      watiConfigured: watiConfigured(),
       devReset: env.allowDataReset() && me.role === "owner",
       version: APP_VERSION,
     });

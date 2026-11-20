@@ -1,7 +1,7 @@
 // Shop side of the app: finding products, the day's cash drawer and the sales reports.
 // Pure functions, used on the phone (offline too) and in tests.
 
-import { addDays, nowParts, productCodes, type CaisseClose, type Category, type Ledger, type Payment, type Repair, type Sale, type StockItem } from "./ledger";
+import { addDays, nowParts, productCodes, type CaisseClose, type Category, type Ledger, type Sale, type StockItem } from "./ledger";
 
 // ---------------------------------------------------------------- search
 
@@ -122,62 +122,29 @@ export function dayOf(iso: string): string {
 export interface CashDay {
   date: string;
   cashSales: Sale[];
-  advances: Payment[];
-  installments: Payment[];
-  /** Money for repairs that day: advances of devices brought, and what was paid when collecting them. */
-  repairs: { id: string; repairId: string; kind: "advance" | "paid"; device: string; time: string; amount: number }[];
-  totals: { cashSales: number; advances: number; installments: number; repairs: number; incoming: number };
+  totals: { cashSales: number; incoming: number };
   /**
    * Recorded that day but dated up to a week earlier: money that may be missing
-   * from an earlier drawer. (Older dates are records typed in from the past, like
-   * the ones moved from the old sheet.)
+   * from an earlier drawer. (Older dates are sales typed in from the past.)
    */
-  backdated: { kind: "sale" | "payment" | "repair"; id: string; label: string; amount: number; date: string }[];
+  backdated: { kind: "sale"; id: string; label: string; amount: number; date: string }[];
   closings: CaisseClose[];
 }
 
-const sum = (list: { amount?: number; sellPrice?: number }[]) => round2(list.reduce((s, x) => s + (x.amount ?? x.sellPrice ?? 0), 0));
+const sum = (list: { sellPrice: number }[]) => round2(list.reduce((s, x) => s + x.sellPrice, 0));
 
-/**
- * Money that came into the drawer on `date`:
- * cash sales + credit advances (تسبيق) + instalments (دفعة) + repair advances
- * (تسبيق الإصلاح, on the day the device was brought) + what was paid when a
- * repaired device was collected (on that day). Expenses come off at closing.
- */
+/** Money that came into the drawer on `date`: the cash sales. Expenses come off at closing. */
 export function cashDay(ledger: Ledger, date: string): CashDay {
-  const names = new Map(ledger.clients.map((c) => [c.id, c.name]));
-  const cashSales = ledger.sales.filter((s) => s.type === "كاش" && s.date === date);
-  const payments = ledger.payments.filter((p) => p.date === date);
-  const advances = payments.filter((p) => p.kind === "تسبيق");
-  const installments = payments.filter((p) => p.kind === "دفعة");
-  const all: Repair[] = ledger.repairs ?? [];
-  const repairs: CashDay["repairs"] = [
-    ...all.filter((r) => r.date === date && r.advance > 0).map((r) => ({ id: `${r.id}:a`, repairId: r.id, kind: "advance" as const, device: r.device, time: r.time, amount: r.advance })),
-    ...all
-      .filter((r) => r.deliveredDate === date && r.paid > 0)
-      .map((r) => ({ id: `${r.id}:p`, repairId: r.id, kind: "paid" as const, device: r.device, time: r.deliveredTime, amount: r.paid })),
-  ];
-  const repairsTotal = round2(repairs.reduce((t, r) => t + r.amount, 0));
-  const totals = { cashSales: sum(cashSales), advances: sum(advances), installments: sum(installments), repairs: repairsTotal, incoming: 0 };
-  totals.incoming = round2(totals.cashSales + totals.advances + totals.installments + totals.repairs);
+  const cashSales = ledger.sales.filter((s) => s.date === date);
+  const total = sum(cashSales);
+  const totals = { cashSales: total, incoming: total };
   const weekBefore = addDays(date, -7);
   const late = (d: string, createdAt: string) => d < date && d >= weekBefore && dayOf(createdAt) === date;
-  const backdated: CashDay["backdated"] = [
-    ...ledger.sales
-      .filter((s) => s.type === "كاش" && late(s.date, s.createdAt))
-      .map((s) => ({ kind: "sale" as const, id: s.id, label: s.item, amount: s.sellPrice, date: s.date })),
-    ...ledger.payments
-      .filter((p) => late(p.date, p.createdAt))
-      .map((p) => ({ kind: "payment" as const, id: p.id, label: `${p.kind} · ${names.get(p.clientId) ?? ""}`, amount: p.amount, date: p.date })),
-    ...all
-      .filter((r) => r.advance > 0 && late(r.date, r.createdAt))
-      .map((r) => ({ kind: "repair" as const, id: r.id, label: `تسبيق إصلاح · ${r.device}`, amount: r.advance, date: r.date })),
-    ...all
-      .filter((r) => r.paid > 0 && r.deliveredDate && late(r.deliveredDate, r.updatedAt))
-      .map((r) => ({ kind: "repair" as const, id: `${r.id}:p`, label: `خلاص إصلاح · ${r.device}`, amount: r.paid, date: r.deliveredDate })),
-  ];
+  const backdated: CashDay["backdated"] = ledger.sales
+    .filter((s) => late(s.date, s.createdAt))
+    .map((s) => ({ kind: "sale" as const, id: s.id, label: s.item, amount: s.sellPrice, date: s.date }));
   const closings = ledger.closings.filter((k) => k.date === date).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  return { date, cashSales, advances, installments, repairs, totals, backdated, closings };
+  return { date, cashSales, totals, backdated, closings };
 }
 
 // ---------------------------------------------------------------- reports
@@ -220,8 +187,6 @@ export interface Report {
   profit: number;
   /** Lines sold without a known cost: left out of the profit. */
   unknownCost: number;
-  cash: number;
-  credit: number;
   byCategory: Group[];
   byItem: Group[];
   /** Revenue per day, or per month for long ranges. */
@@ -269,15 +234,11 @@ export function report(sales: Sale[], from: string, to: string): Report {
   let profit = 0;
   let units = 0;
   let unknownCost = 0;
-  let cash = 0;
-  let credit = 0;
   for (const s of sales) {
     revenue += s.sellPrice;
     units += s.quantity;
     if (s.buyPrice === null) unknownCost += 1;
     else profit += s.sellPrice - s.buyPrice;
-    if (s.type === "كاش") cash += s.sellPrice;
-    else credit += s.sellPrice;
     add(byCategory, s.category || "بلا فئة", s);
     add(byItem, s.item.trim(), s);
     const key = monthly ? s.date.slice(0, 7) : s.date;
@@ -294,8 +255,6 @@ export function report(sales: Sale[], from: string, to: string): Report {
     revenue: round2(revenue),
     profit: round2(profit),
     unknownCost,
-    cash: round2(cash),
-    credit: round2(credit),
     byCategory: sorted(byCategory),
     byItem: sorted(byItem),
     series: [...series.values()].sort((a, b) => a.key.localeCompare(b.key)),

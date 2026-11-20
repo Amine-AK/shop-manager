@@ -6,6 +6,7 @@ import type { Sale } from "@/lib/ledger";
 import { displayDate, displayDateTime } from "@/lib/receipt";
 import { filterSales, percent, rangeOf, report, type Group, type RangePreset } from "@/lib/shop";
 import { can, seesCost } from "@/lib/roles";
+import { needsApproval } from "@/lib/approvals";
 import { SaleTicketDialog } from "./SaleTicket";
 import { EyeButton, shown, useHiddenAmount } from "./HideAmount";
 import type { LedgerState } from "./useLedger";
@@ -38,8 +39,8 @@ export function ReportsView({ data, onToast }: { data: LedgerState; onToast: (ms
   const sales = useMemo(() => filterSales(ledger.sales, range.from, range.to, category, query), [ledger.sales, range.from, range.to, category, query]);
   const r = useMemo(() => report(sales, range.from, range.to), [sales, range.from, range.to]);
   const recent = useMemo(() => [...sales].sort((a, b) => (b.date + b.time + b.createdAt).localeCompare(a.date + a.time + a.createdAt)).slice(0, 40), [sales]);
-  const cashPct = percent(r.cash, r.revenue);
-  const names = useMemo(() => new Map(ledger.clients.map((c) => [c.id, c.name])), [ledger.clients]);
+  // A seller's cancellation waits for the owner when the shop's rule says so.
+  const cancelWaits = needsApproval(data.me, { type: "sale.delete", id: "", opId: "", at: "" }, ledger);
 
   return (
     <div className="view">
@@ -104,16 +105,9 @@ export function ReportsView({ data, onToast }: { data: LedgerState; onToast: (ms
         </div>
         )}
         <div className="stat">
-          <span className="stat-label">كاش / كريدي</span>
-          <span className="stat-value">
-            {cashPct}% / {r.revenue > 0 ? 100 - cashPct : 0}%
-          </span>
-          <div className="split-bar" role="img" aria-label={`كاش ${cashPct}%، كريدي ${r.revenue > 0 ? 100 - cashPct : 0}%`}>
-            <span className="split-cash" style={{ width: `${cashPct}%` }} />
-          </div>
-          <span className="stat-sub">
-            {money(r.cash)} · {money(r.credit)}
-          </span>
+          <span className="stat-label">معدل التيكي</span>
+          <span className="stat-value">{shown(owner && hideRevenue, money(r.tickets ? Math.round((r.revenue / r.tickets) * 100) / 100 : 0))}</span>
+          <span className="stat-sub">{r.tickets ? `${(r.units / r.tickets).toFixed(1)} وحدة فكل بيعة` : "—"}</span>
         </div>
       </section>
 
@@ -167,18 +161,14 @@ export function ReportsView({ data, onToast }: { data: LedgerState; onToast: (ms
                       {s.item}
                     </strong>
                     <span className="muted small">
-                      {s.type}
-                      {s.clientId ? ` · ${names.get(s.clientId) ?? "زبون مأرشف"}` : ""}
-                      {s.seller ? ` · ${s.seller}` : ""}
+                      {s.seller || "—"}
                       {cost && s.buyPrice !== null ? ` · ربح ${money(s.sellPrice - s.buyPrice)}` : ""}
                     </span>
                     <span className="row-actions">
-                      {s.type === "كاش" && (
-                        <button type="button" className="link-btn" onClick={() => setTicket(ledger.sales.filter((x) => x.ticket === s.ticket))}>
-                          وصل
-                        </button>
-                      )}
-{can(data.me, "cancel_sale") && (
+                      <button type="button" className="link-btn" onClick={() => setTicket(ledger.sales.filter((x) => x.ticket === s.ticket))}>
+                        وصل
+                      </button>
+                      {can(data.me, "cancel_sale") && (
                       <button type="button" className="link-btn danger-text" onClick={() => setCancel(s)}>
                         إلغاء
                       </button>
@@ -202,7 +192,7 @@ export function ReportsView({ data, onToast }: { data: LedgerState; onToast: (ms
           onClose={() => setCancel(null)}
           onConfirm={() => {
             data.run(`إلغاء بيع · ${cancel.item}`, { type: "sale.delete", id: cancel.id });
-            onToast(cancel.stockId ? "تلغى البيع ورجعات السلعة للمخزون" : "تلغى البيع");
+            onToast(cancelWaits ? "⏳ الإلغاء كيتسنى موافقة المالك" : cancel.stockId ? "تلغى البيع ورجعات السلعة للمخزون" : "تلغى البيع");
             setCancel(null);
           }}
         >
@@ -210,7 +200,7 @@ export function ReportsView({ data, onToast }: { data: LedgerState; onToast: (ms
             نلغيو «{cancel.item}» ({money(cancel.sellPrice)})؟
           </p>
           {cancel.stockId && <p className="muted small">السلعة غادي ترجع للمخزون.</p>}
-          {cancel.purchaseId && <p className="muted small">وغادي تتحيد من الحساب ديال الزبون (الدفعات ديالو كيبقاو).</p>}
+          {cancelWaits && <p className="muted small">⏳ الإلغاء كيتسنى موافقة المالك قبل ما يتسجل.</p>}
         </Confirm>
       )}
     </div>

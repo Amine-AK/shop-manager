@@ -1,6 +1,5 @@
-// The shop's credit ledger: customers, their purchases, their payments and the
-// history of their instalment (الطريطة). One debt per customer = everything they
-// bought minus everything they paid.
+// The shop's ledger: stock, cash sales, stock moves, the daily cash drawer,
+// shop settings, the notebook and the sellers' changes waiting for the owner.
 //
 // Every change is an operation with its own id. The same `applyOp` runs on the
 // phone (to show the change at once, even offline) and on the server (to save
@@ -8,70 +7,7 @@
 // twice: a second copy is recognised and skipped.
 
 import { approvalChain, refusalCascade } from "./approval-deps";
-import { addDays, addMonths, addPeriods, dueStatus, isISODate, isManualPeriod, nextDateForPeriod, type DueStatus } from "./sheet-logic";
-
-export interface Client {
-  id: string;
-  name: string;
-  /** Main number: the one used for WhatsApp. */
-  phone: string;
-  /** More numbers (wife, work, other SIM…), to call or find the customer. */
-  phones?: string[];
-  /** Agreed instalment in dirhams, 0 = not set. */
-  installment: number;
-  /** سيمانة / 15 يوم / شهر / تحديد يدوي */
-  period: string;
-  /** yyyy-mm-dd or "" */
-  nextDueDate: string;
-  notes: string;
-  /** 0 = normal (default), 1 = special: accounts set to «special only» follow just these. */
-  type?: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface Purchase {
-  id: string;
-  clientId: string;
-  /** yyyy-mm-dd */
-  date: string;
-  item: string;
-  price: number;
-  notes: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export const PAYMENT_KINDS = ["تسبيق", "دفعة"] as const;
-export type PaymentKind = (typeof PAYMENT_KINDS)[number];
-
-export interface Payment {
-  id: string;
-  clientId: string;
-  /** The purchase this payment is for, "" = general. */
-  purchaseId: string;
-  /** yyyy-mm-dd */
-  date: string;
-  /** HH:mm */
-  time: string;
-  amount: number;
-  kind: PaymentKind;
-  notes: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface InstallmentChange {
-  id: string;
-  clientId: string;
-  date: string;
-  oldAmount: number;
-  newAmount: number;
-  oldPeriod: string;
-  newPeriod: string;
-  reason: string;
-  createdAt: string;
-}
+import { addDays, isISODate } from "./dates";
 
 // ---------------------------------------------------------------- shop: stock, sales, cash drawer
 
@@ -122,10 +58,7 @@ export function validIcon(icon: unknown): icon is string {
   return icon.length <= 16 && !/[<>"'`\s]/.test(icon);
 }
 
-export const SALE_TYPES = ["كاش", "كريدي"] as const;
-export type SaleType = (typeof SALE_TYPES)[number];
-
-/** One line of a sale (المبيعات): every sale, cash or credit, is logged here. */
+/** One line of a sale (المبيعات): every sale is cash and is logged here. */
 export interface Sale {
   id: string;
   /** Lines sold together share the ticket (the id of the first line). */
@@ -143,11 +76,6 @@ export interface Sale {
   listPrice: number;
   /** Total price paid by the customer. */
   sellPrice: number;
-  type: SaleType;
-  /** Credit only. */
-  clientId: string;
-  /** Credit only: the purchase on the customer's account. */
-  purchaseId: string;
   seller: string;
   notes: string;
   createdAt: string;
@@ -174,10 +102,6 @@ export interface CaisseClose {
   time: string;
   clerk: string;
   cashSales: number;
-  advances: number;
-  installments: number;
-  /** Advances paid on repairs brought that day (0 in closings made before repairs counted). */
-  repairs?: number;
   expenses: number;
   expensesNote: string;
   /** What should be in the drawer. */
@@ -186,85 +110,6 @@ export interface CaisseClose {
   counted: number | null;
   notes: string;
   createdAt: string;
-}
-
-/** Where a device brought for repair is (الإصلاح). */
-export const REPAIR_STATUSES = ["مستلم", "فالإصلاح", "واجد", "تسلم", "ما تصلحش"] as const;
-export type RepairStatus = (typeof REPAIR_STATUSES)[number];
-
-/** A device brought by a customer to be repaired (tab الإصلاح). */
-export interface Repair {
-  id: string;
-  /** Its own barcode (EAN-13 starting with 2, like the shop's products), on the sticker stuck on the device. */
-  code: string;
-  /** When it was brought: yyyy-mm-dd, HH:mm. */
-  date: string;
-  time: string;
-  owner: string;
-  phone: string;
-  /** The device: «Samsung A15», «Machine à laver Candy»… */
-  device: string;
-  problem: string;
-  /** Price of the repair (first estimate; corrected when the device is given back), and the advance paid when it was brought. */
-  price: number;
-  advance: number;
-  /** When the owner collected it ("" while still in the shop) and what they paid then. */
-  deliveredDate: string;
-  deliveredTime: string;
-  paid: number;
-  /** What the repair cost the shop (parts, extra work not charged to the customer). */
-  cost: number;
-  status: RepairStatus;
-  notes: string;
-  /** Photo of the device as a small data: URL (fits one sheet cell), "" = none. */
-  photo: string;
-  createdAt: string;
-  updatedAt: string;
-  /** Account and device that made the last change (see lib/change-origin.ts). */
-  by?: string;
-  origin?: string;
-}
-
-/** Where a request sent to a brand's after-sales service is (خدمة الشركة). */
-export const CLAIM_STATUSES = ["تصيفط", "كيتصلح", "تحل"] as const;
-export type ClaimStatus = (typeof CLAIM_STATUSES)[number];
-
-/**
- * A product we sold has a fault the brand's after-sales service must repair:
- * the request sent to them on WhatsApp, followed until it is solved.
- */
-export interface Claim {
-  id: string;
-  /** When the request was sent: yyyy-mm-dd, HH:mm. */
-  date: string;
-  time: string;
-  /** The customer the service must call (typed in the form, not tied to الزبناء). */
-  customer: string;
-  phone: string;
-  item: string;
-  /** When we sold it ("" = not known). */
-  saleDate: string;
-  /** The after-sales service: brand name and its WhatsApp number, as they were when sent. */
-  company: string;
-  servicePhone: string;
-  problem: string;
-  status: ClaimStatus;
-  /** ISO time of the last message sent to the service (the request, then each reminder): the 48 h run from it. */
-  lastSentAt: string;
-  reminders: number;
-  /** When it was solved ("" while open). */
-  resolvedDate: string;
-  resolvedTime: string;
-  notes: string;
-  /** Where the product comes from, "" when typed by hand: credit customer, their purchase, the sale line. */
-  clientId: string;
-  purchaseId: string;
-  saleId: string;
-  createdAt: string;
-  updatedAt: string;
-  /** Account and device that made the last change (see lib/change-origin.ts). */
-  by?: string;
-  origin?: string;
 }
 
 /** A line of the shop's notebook (الكناش): something to remember, or what a customer asked for. */
@@ -278,7 +123,7 @@ export interface Note {
   time: string;
   kind: NoteKind;
   text: string;
-  /** The customer it is about ("" = none): typed, or filled from الزبناء by the phone. */
+  /** The customer it is about ("" = none): free text, name and phone. */
   customer: string;
   phone: string;
   /** Ticked off: by whom and when (ISO), "" while open. */
@@ -296,14 +141,15 @@ export interface Note {
   origin?: string;
 }
 
-/** Where a seller's credit change is (طلبات الموافقة). */
+/** Where a seller's change waiting for the owner is (طلبات الموافقة). */
 export const APPROVAL_STATUSES = ["كتسنى", "تقبل", "ترفض"] as const;
 export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
 
 /**
- * A credit change made by a seller (new customer, credit sale, payment,
- * instalment, edit, deletion): kept aside until the owner accepts it. Only
- * then is `op` applied to the customers' tabs; refused ones stay, with why.
+ * A sensitive change made by a seller (cancelled sale, new price or cost, stock
+ * taken out, product deleted, cash drawer that doesn't match; see lib/approvals.ts):
+ * kept aside until the owner accepts it. Only then is `op` applied to the
+ * sheet's tabs; refused ones stay, with why.
  */
 export interface Approval {
   /** "A-" + the change's own id (the same change sent twice is the same request). */
@@ -322,13 +168,8 @@ export interface Approval {
   updatedAt: string;
 }
 
-/** Changes a seller makes that need the owner's approval: everything about credit. */
-export const CREDIT_OPS = new Set<string>([
-  "client.add", "client.update", "client.delete", "client.installment",
-  "purchase.add", "purchase.update", "purchase.delete",
-  "payment.add", "payment.update", "payment.delete",
-  "sale.add", "sale.delete",
-]);
+/** Changes that can wait for the owner (which ones do is a shop setting, see lib/approvals.ts). */
+export const APPROVABLE_OPS = new Set<string>(["sale.delete", "stock.update", "stock.adjust", "stock.delete", "caisse.close"]);
 
 /** A shop-wide setting shared by every device (e.g. the default sticker look), as JSON text. */
 export interface Setting {
@@ -339,30 +180,22 @@ export interface Setting {
 
 /** Setting keys in use. */
 export const STICKER_LOOK_KEY = "sticker-look";
-/** After-sales services of the brands (خدمة العملاء): JSON list, see lib/claims.ts. */
-export const SERVICE_CONTACTS_KEY = "service-contacts";
-/** The WhatsApp reminders' texts with [variables] (see lib/reminder-templates.ts). */
-export const REMINDER_TEMPLATES_KEY = "reminder-templates";
+/** Which sellers' changes wait for the owner: JSON, see lib/approvals.ts. */
+export const APPROVAL_RULES_KEY = "approval-rules";
 
 export interface Ledger {
-  clients: Client[];
-  purchases: Purchase[];
-  payments: Payment[];
-  changes: InstallmentChange[];
   stock: StockItem[];
   categories: Category[];
   sales: Sale[];
   moves: StockMove[];
   closings: CaisseClose[];
   settings: Setting[];
-  repairs: Repair[];
-  claims: Claim[];
   approvals: Approval[];
   notes: Note[];
 }
 
 export function emptyLedger(): Ledger {
-  return { clients: [], purchases: [], payments: [], changes: [], stock: [], categories: [], sales: [], moves: [], closings: [], settings: [], repairs: [], claims: [], approvals: [], notes: [] };
+  return { stock: [], categories: [], sales: [], moves: [], closings: [], settings: [], approvals: [], notes: [] };
 }
 
 export const EMPTY_LEDGER: Ledger = emptyLedger();
@@ -371,11 +204,6 @@ export const EMPTY_LEDGER: Ledger = emptyLedger();
 export function normalizeLedger(l: Partial<Ledger> | null | undefined): Ledger {
   const full = { ...emptyLedger(), ...(l ?? {}) } as Ledger;
   return { ...full, stock: full.stock.map((s) => (Array.isArray(s.codes) ? s : { ...s, codes: [] })) };
-}
-
-/** Every number of a customer: the main one first, then the others. */
-export function clientPhones(c: Pick<Client, "phone" | "phones">): string[] {
-  return [c.phone, ...(c.phones ?? [])].map((x) => x.trim()).filter(Boolean);
 }
 
 /** Every code of a product: the main one and the other suppliers'. */
@@ -388,10 +216,10 @@ export function productCodes(s: Pick<StockItem, "serial" | "codes">): string[] {
 const ID_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O, 1/I: easy to read on a receipt
 
 /**
- * "C-7K2QXM9A": prefix C (client), S (purchase), P (payment), T (instalment change), O (operation),
- * I (stock item), V (sale), M (stock move), K (cash drawer closing).
+ * "V-7K2QXM9A": prefix O (operation), I (stock item), V (sale), M (stock move),
+ * K (cash drawer closing), A (approval request), N (notebook line).
  */
-export type IdPrefix = "C" | "S" | "P" | "T" | "O" | "I" | "V" | "M" | "K" | "R" | "W" | "A" | "N";
+export type IdPrefix = "O" | "I" | "V" | "M" | "K" | "A" | "N";
 export function newLedgerId(prefix: IdPrefix): string {
   const bytes = new Uint8Array(8);
   if (typeof crypto !== "undefined" && "getRandomValues" in crypto) crypto.getRandomValues(bytes);
@@ -399,28 +227,12 @@ export function newLedgerId(prefix: IdPrefix): string {
   return `${prefix}-${Array.from(bytes, (b) => ID_CHARS[b % ID_CHARS.length]).join("")}`;
 }
 
-const ID_RE = /^[CSPTOIVMKRWAN]-[A-Z0-9]{4,16}$/;
+const ID_RE = /^[OIVMKAN]-[A-Z0-9]{4,16}$/;
 export const isLedgerId = (s: unknown): s is string => typeof s === "string" && ID_RE.test(s);
 
 // ---------------------------------------------------------------- operations
 
 type OpBody =
-  | { type: "client.add"; client: Client }
-  | { type: "client.update"; id: string; base: string; patch: Partial<Pick<Client, "name" | "phone" | "phones" | "notes" | "nextDueDate" | "type">> }
-  /** withHistory: also delete their purchases, payments and instalment changes (their sales are cancelled). */
-  | { type: "client.delete"; id: string; withHistory?: boolean }
-  | { type: "client.installment"; id: string; base: string; change: InstallmentChange; nextDueDate?: string }
-  | { type: "purchase.add"; purchase: Purchase }
-  | { type: "purchase.update"; id: string; base: string; patch: Partial<Pick<Purchase, "date" | "item" | "price" | "notes">> }
-  | { type: "purchase.delete"; id: string }
-  | { type: "payment.add"; payment: Payment; nextDueDate?: string }
-  | {
-      type: "payment.update";
-      id: string;
-      base: string;
-      patch: Partial<Pick<Payment, "clientId" | "purchaseId" | "date" | "time" | "amount" | "kind" | "notes">>;
-    }
-  | { type: "payment.delete"; id: string }
   | { type: "stock.add"; item: StockItem }
   | {
       type: "stock.update";
@@ -431,13 +243,7 @@ type OpBody =
   | { type: "stock.adjust"; move: StockMove }
   | { type: "stock.delete"; id: string }
   | { type: "category.save"; category: Category }
-  | { type: "repair.add"; repair: Repair }
-  | { type: "repair.update"; id: string; base: string; patch: Partial<Omit<Repair, "id" | "createdAt" | "updatedAt" | "by" | "origin">> }
-  | { type: "repair.delete"; id: string }
-  | { type: "claim.add"; claim: Claim }
-  | { type: "claim.update"; id: string; base: string; patch: Partial<Omit<Claim, "id" | "createdAt" | "updatedAt" | "by" | "origin">> }
-  | { type: "claim.delete"; id: string }
-  /** A seller's credit change, kept aside for the owner (see Approval). */
+  /** A seller's change kept aside for the owner (see Approval). */
   | { type: "approval.add"; id: string; op: LedgerOp }
   /** The owner accepts (the change and what it needs are applied) or refuses (with what was built on it). */
   | { type: "approval.decide"; id: string; decision: "accept" | "refuse"; reason: string }
@@ -449,9 +255,9 @@ type OpBody =
   | { type: "approval.note"; id: string; note: string }
   /** A shop-wide setting (key → JSON text), e.g. the default sticker look. */
   | { type: "setting.save"; key: string; value: string }
-  /** Lines sold together; a credit sale also brings the purchases for the customer's account. */
-  | { type: "sale.add"; lines: Sale[]; purchases: Purchase[] }
-  /** Cancel one line: the product goes back to stock, its purchase leaves the customer's account. */
+  /** Lines sold together (one ticket). */
+  | { type: "sale.add"; lines: Sale[] }
+  /** Cancel one line: the product goes back to stock. */
   | { type: "sale.delete"; id: string }
   | { type: "caisse.close"; close: CaisseClose };
 
@@ -487,39 +293,6 @@ const money = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v >
 const date = (v: unknown) => typeof v === "string" && (v === "" || isISODate(v));
 const time = (v: unknown) => typeof v === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
 
-function checkClient(c: Client): string | null {
-  if (!isLedgerId(c.id) || !c.id.startsWith("C-")) return "رقم الزبون غير صحيح";
-  if (!text(c.name, 200) || !c.name.trim()) return "الاسم ضروري";
-  if (!text(c.phone, 40) || !text(c.period, 40) || !text(c.notes, 1000)) return "معلومات الزبون غير صحيحة";
-  const more = c.phones ?? [];
-  if (!Array.isArray(more) || more.length > 10 || !more.every((x) => typeof x === "string" && x.trim() !== "" && x.length <= 40 && !/[\n\r]/.test(x))) {
-    return "أرقام الهاتف الأخرى غير صحيحة";
-  }
-  if (!money(c.installment)) return "مبلغ الطريطة غير صحيح";
-  if (c.type !== undefined && c.type !== 0 && c.type !== 1) return "نوع الزبون غير صحيح";
-  if (!date(c.nextDueDate) || !text(c.createdAt, 40)) return "التاريخ غير صحيح";
-  return null;
-}
-
-function checkPurchase(p: Purchase): string | null {
-  if (!isLedgerId(p.id) || !p.id.startsWith("S-") || !isLedgerId(p.clientId)) return "رقم العملية غير صحيح";
-  if (!text(p.item, 300) || !p.item.trim()) return "السلعة ضرورية";
-  if (!money(p.price) || p.price <= 0) return "ثمن البيع غير صحيح";
-  if (!date(p.date) || !p.date || !text(p.createdAt, 40)) return "التاريخ غير صحيح";
-  if (!text(p.notes, 1000)) return "الملاحظة طويلة بزاف";
-  return null;
-}
-
-function checkPayment(p: Payment): string | null {
-  if (!isLedgerId(p.id) || !p.id.startsWith("P-") || !isLedgerId(p.clientId)) return "رقم الوصل غير صحيح";
-  if (p.purchaseId && !isLedgerId(p.purchaseId)) return "السلعة غير صحيحة";
-  if (!money(p.amount) || p.amount <= 0) return "المبلغ غير صحيح";
-  if (!date(p.date) || !p.date || !time(p.time) || !text(p.createdAt, 40)) return "التاريخ غير صحيح";
-  if (!PAYMENT_KINDS.includes(p.kind)) return "نوع الدفعة غير صحيح";
-  if (!text(p.notes, 1000)) return "الملاحظة طويلة بزاف";
-  return null;
-}
-
 const amount = (v: unknown) => typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= 100_000_000;
 
 /** A list of product codes: short, one line each, no repeats. */
@@ -539,42 +312,6 @@ function codeTaken(ledger: Ledger, codes: string[], exceptId: string): string | 
     if (hit) return `«${hit}» مستعمل ديجا فـ «${s.item}»`;
   }
   return undefined;
-}
-
-/** Photo of a repaired device: a small data: URL that fits one sheet cell, and one Excel cell (backup). */
-export const MAX_PHOTO_LENGTH = 32_000;
-
-function checkRepair(r: Repair, ledger: Ledger): string | null {
-  if (!isLedgerId(r.id) || !r.id.startsWith("R-")) return "رقم الإصلاح غير صحيح";
-  if (!/^2\d{12}$/.test(r.code)) return "الباركود ديال الإصلاح غير صحيح";
-  if (!date(r.date) || !r.date || !time(r.time)) return "التاريخ ولا الساعة غير صحيحين";
-  if (!text(r.owner, 200) || !r.owner.trim()) return "سمية مول الجهاز ضرورية";
-  if (!text(r.phone, 40) || !text(r.device, 200) || !r.device.trim() || !text(r.problem, 1000) || !text(r.notes, 1000)) return "معلومات الإصلاح غير صحيحة";
-  if (!money(r.price) || !money(r.advance) || !money(r.paid) || !money(r.cost)) return "الثمن، التسبيق، الخلاص ولا التكاليف غير صحيح";
-  if (!date(r.deliveredDate) || (r.deliveredTime !== "" && !time(r.deliveredTime))) return "تاريخ التسليم غير صحيح";
-  if (r.status === "تسلم" && !r.deliveredDate) return "تاريخ التسليم ضروري";
-  if (!REPAIR_STATUSES.includes(r.status)) return "الحالة غير صحيحة";
-  if (typeof r.photo !== "string" || r.photo.length > MAX_PHOTO_LENGTH || (r.photo && !/^data:image\/(jpeg|webp|png);base64,/.test(r.photo))) return "الصورة غير صحيحة ولا كبيرة بزاف";
-  // A repair's barcode never matches a product or another repair.
-  const taken = codeTaken(ledger, [r.code], "") ?? ledger.repairs.find((x) => x.id !== r.id && x.code === r.code)?.device;
-  if (taken) return `الباركود «${r.code}» مستعمل ديجا`;
-  return null;
-}
-
-function checkClaim(c: Claim): string | null {
-  if (!isLedgerId(c.id) || !c.id.startsWith("W-")) return "رقم الطلب غير صحيح";
-  if (!date(c.date) || !c.date || !time(c.time)) return "التاريخ ولا الساعة غير صحيحين";
-  if (!text(c.customer, 200) || !c.customer.trim()) return "سمية الزبون ضرورية";
-  if (!text(c.item, 300) || !c.item.trim()) return "السلعة ضرورية";
-  if (!text(c.company, 200) || !c.company.trim() || !text(c.servicePhone, 40) || !c.servicePhone.trim()) return "خدمة الصيانة ديال الشركة ضرورية";
-  if (!text(c.phone, 40) || !text(c.problem, 1000) || !c.problem.trim() || !text(c.notes, 1000)) return "معلومات الطلب غير صحيحة";
-  if (!date(c.saleDate) || !date(c.resolvedDate) || (c.resolvedTime !== "" && !time(c.resolvedTime))) return "التاريخ غير صحيح";
-  if (!CLAIM_STATUSES.includes(c.status)) return "الحالة غير صحيحة";
-  if (c.status === "تحل" && !c.resolvedDate) return "تاريخ الحل ضروري";
-  if (typeof c.lastSentAt !== "string" || Number.isNaN(Date.parse(c.lastSentAt))) return "وقت آخر رسالة غير صحيح";
-  if (!Number.isInteger(c.reminders) || c.reminders < 0 || c.reminders > 10_000) return "عدد التذكيرات غير صحيح";
-  if (![c.clientId, c.purchaseId, c.saleId].every((x) => text(x, 60))) return "معلومات الطلب غير صحيحة";
-  return null;
 }
 
 function checkNote(n: Note): string | null {
@@ -604,7 +341,6 @@ function checkStock(s: StockItem): string | null {
 function checkSale(s: Sale): string | null {
   if (!isLedgerId(s.id) || !s.id.startsWith("V-") || !isLedgerId(s.ticket)) return "رقم البيع غير صحيح";
   if (!text(s.item, 300) || !s.item.trim() || !text(s.category, 100)) return "السلعة ضرورية";
-  if (!SALE_TYPES.includes(s.type)) return "نوع البيع غير صحيح";
   if (!Number.isInteger(s.quantity) || s.quantity < 1 || s.quantity > 10_000) return "الكمية غير صحيحة";
   if (!money(s.sellPrice) || !money(s.listPrice) || (s.buyPrice !== null && !money(s.buyPrice))) return "الثمن غير صحيح";
   if (!date(s.date) || !s.date || !time(s.time) || !text(s.createdAt, 40)) return "التاريخ غير صحيح";
@@ -633,132 +369,7 @@ function replace<T extends { id: string }>(list: T[], id: string, next: T): T[] 
  * - "invalid": refused (bad values, unknown customer…).
  */
 export function applyOp(ledger: Ledger, op: LedgerOp): Applied {
-  const findClient = (id: string) => ledger.clients.find((c) => c.id === id);
   switch (op.type) {
-    case "client.add": {
-      if (findClient(op.client.id)) return { ledger, result: "already" };
-      const err = checkClient(op.client);
-      if (err) return invalid(ledger, err);
-      return { ledger: { ...ledger, clients: [...ledger.clients, { ...op.client, updatedAt: op.at }] }, result: "ok" };
-    }
-    case "client.update": {
-      const c = findClient(op.id);
-      if (!c) return invalid(ledger, "الزبون ما بقاش");
-      if (c.updatedAt === op.at) return { ledger, result: "already" };
-      if (c.updatedAt !== op.base) return { ledger, result: "conflict", message: CONFLICT };
-      const next = { ...c, ...pick<Client>(op.patch, ["name", "phone", "phones", "notes", "nextDueDate", "type"]), updatedAt: op.at };
-      const err = checkClient(next);
-      if (err) return invalid(ledger, err);
-      return { ledger: { ...ledger, clients: replace(ledger.clients, c.id, next) }, result: "ok" };
-    }
-    case "client.delete": {
-      if (!findClient(op.id)) return { ledger, result: "already" };
-      const hasHistory = ledger.purchases.some((p) => p.clientId === op.id) || ledger.payments.some((p) => p.clientId === op.id);
-      if (hasHistory && op.withHistory !== true) {
-        return invalid(ledger, "هاد الزبون عندو مشتريات ولا دفعات. ما يمكنش يتمسح، أرشفه ملي يخلص.");
-      }
-      // Everything of this customer goes; their credit sales are cancelled and the products go back to stock.
-      const purchaseIds = new Set(ledger.purchases.filter((p) => p.clientId === op.id).map((p) => p.id));
-      const cancelled = ledger.sales.filter((s) => s.clientId === op.id || purchaseIds.has(s.purchaseId));
-      const cancelledIds = new Set(cancelled.map((s) => s.id));
-      return {
-        ledger: {
-          ...restock(ledger, cancelled, op),
-          clients: ledger.clients.filter((c) => c.id !== op.id),
-          purchases: ledger.purchases.filter((p) => p.clientId !== op.id),
-          payments: ledger.payments.filter((p) => p.clientId !== op.id),
-          changes: ledger.changes.filter((x) => x.clientId !== op.id),
-          sales: ledger.sales.filter((s) => !cancelledIds.has(s.id)),
-        },
-        result: "ok",
-      };
-    }
-    case "client.installment": {
-      const c = findClient(op.id);
-      if (!c) return invalid(ledger, "الزبون ما بقاش");
-      if (ledger.changes.some((x) => x.id === op.change.id)) return { ledger, result: "already" };
-      if (c.updatedAt !== op.base) return { ledger, result: "conflict", message: CONFLICT };
-      const ch = op.change;
-      if (!isLedgerId(ch.id) || ch.clientId !== c.id || !money(ch.newAmount) || !text(ch.newPeriod, 40) || !text(ch.reason, 300) || !date(ch.date)) {
-        return invalid(ledger, "تغيير الطريطة غير صحيح");
-      }
-      if (op.nextDueDate !== undefined && !date(op.nextDueDate)) return invalid(ledger, "التاريخ غير صحيح");
-      const next: Client = {
-        ...c,
-        installment: ch.newAmount,
-        period: ch.newPeriod,
-        nextDueDate: op.nextDueDate ?? c.nextDueDate,
-        updatedAt: op.at,
-      };
-      const change: InstallmentChange = { ...ch, oldAmount: c.installment, oldPeriod: c.period };
-      return {
-        ledger: { ...ledger, clients: replace(ledger.clients, c.id, next), changes: [...ledger.changes, change] },
-        result: "ok",
-      };
-    }
-    case "purchase.add": {
-      if (ledger.purchases.some((p) => p.id === op.purchase.id)) return { ledger, result: "already" };
-      if (!findClient(op.purchase.clientId)) return invalid(ledger, "الزبون ما بقاش");
-      const err = checkPurchase(op.purchase);
-      if (err) return invalid(ledger, err);
-      return { ledger: { ...ledger, purchases: [...ledger.purchases, { ...op.purchase, updatedAt: op.at }] }, result: "ok" };
-    }
-    case "purchase.update": {
-      const p = ledger.purchases.find((x) => x.id === op.id);
-      if (!p) return invalid(ledger, "هاد السلعة ما بقاتش");
-      if (p.updatedAt === op.at) return { ledger, result: "already" };
-      if (p.updatedAt !== op.base) return { ledger, result: "conflict", message: CONFLICT };
-      const next = { ...p, ...pick<Purchase>(op.patch, ["date", "item", "price", "notes"]), updatedAt: op.at };
-      const err = checkPurchase(next);
-      if (err) return invalid(ledger, err);
-      // The sale behind this purchase follows the new price, date and name.
-      const sales = ledger.sales.map((s) =>
-        s.purchaseId === p.id ? { ...s, item: next.item, date: next.date, sellPrice: next.price, updatedAt: op.at } : s,
-      );
-      return { ledger: { ...ledger, purchases: replace(ledger.purchases, p.id, next), sales }, result: "ok" };
-    }
-    case "purchase.delete": {
-      if (!ledger.purchases.some((p) => p.id === op.id)) return { ledger, result: "already" };
-      // The sale behind it is cancelled too, and its product goes back to stock.
-      const cancelled = ledger.sales.filter((s) => s.purchaseId === op.id);
-      return {
-        ledger: {
-          ...restock(ledger, cancelled, op),
-          purchases: ledger.purchases.filter((p) => p.id !== op.id),
-          sales: ledger.sales.filter((s) => s.purchaseId !== op.id),
-          // Payments for that item stay, as general payments.
-          payments: ledger.payments.map((p) => (p.purchaseId === op.id ? { ...p, purchaseId: "" } : p)),
-        },
-        result: "ok",
-      };
-    }
-    case "payment.add": {
-      if (ledger.payments.some((p) => p.id === op.payment.id)) return { ledger, result: "already" };
-      const c = findClient(op.payment.clientId);
-      if (!c) return invalid(ledger, "الزبون ما بقاش");
-      const err = checkPayment(op.payment);
-      if (err) return invalid(ledger, err);
-      if (op.nextDueDate !== undefined && !date(op.nextDueDate)) return invalid(ledger, "التاريخ غير صحيح");
-      const payment = { ...op.payment, purchaseId: purchaseOf(ledger, op.payment.purchaseId, c.id), updatedAt: op.at };
-      const clients = op.nextDueDate !== undefined ? replace(ledger.clients, c.id, { ...c, nextDueDate: op.nextDueDate }) : ledger.clients;
-      return { ledger: { ...ledger, clients, payments: [...ledger.payments, payment] }, result: "ok" };
-    }
-    case "payment.update": {
-      const p = ledger.payments.find((x) => x.id === op.id);
-      if (!p) return invalid(ledger, "هاد الدفعة ما بقاتش");
-      if (p.updatedAt === op.at) return { ledger, result: "already" };
-      if (p.updatedAt !== op.base) return { ledger, result: "conflict", message: CONFLICT };
-      const next = { ...p, ...pick<Payment>(op.patch, ["clientId", "purchaseId", "date", "time", "amount", "kind", "notes"]), updatedAt: op.at };
-      if (!findClient(next.clientId)) return invalid(ledger, "الزبون ما بقاش");
-      next.purchaseId = purchaseOf(ledger, next.purchaseId, next.clientId);
-      const err = checkPayment(next);
-      if (err) return invalid(ledger, err);
-      return { ledger: { ...ledger, payments: replace(ledger.payments, p.id, next) }, result: "ok" };
-    }
-    case "payment.delete": {
-      if (!ledger.payments.some((p) => p.id === op.id)) return { ledger, result: "already" };
-      return { ledger: { ...ledger, payments: ledger.payments.filter((p) => p.id !== op.id) }, result: "ok" };
-    }
     case "stock.add": {
       if (!op.item || typeof op.item !== "object") return invalid(ledger, "السلعة غير صحيحة");
       if (ledger.stock.some((s) => s.id === op.item.id)) return { ledger, result: "already" };
@@ -794,7 +405,8 @@ export function applyOp(ledger: Ledger, op: LedgerOp): Applied {
       const have = productCodes(s).map((x) => x.toLowerCase());
       const added = codesIn.map((x) => x.trim()).filter((x) => !have.includes(x.toLowerCase()));
       // A difference, not a new total: counts from two phones add up instead of overwriting each other.
-      const next = { ...s, quantity: s.quantity + m.delta, codes: [...s.codes, ...added], updatedAt: op.at, ...origin(op) };
+      // `updatedAt` only moves when new codes come in (a field edit), as for sales.
+      const next = { ...s, quantity: s.quantity + m.delta, codes: [...s.codes, ...added], ...(added.length ? { updatedAt: op.at } : {}), ...origin(op) };
       return { ledger: { ...ledger, stock: replace(ledger.stock, s.id, next), moves: [...ledger.moves, m] }, result: "ok" };
     }
     case "stock.delete": {
@@ -814,71 +426,9 @@ export function applyOp(ledger: Ledger, op: LedgerOp): Applied {
       const categories = old ? ledger.categories.map((x) => (x.name === clean.name ? clean : x)) : [...ledger.categories, clean];
       return { ledger: { ...ledger, categories }, result: "ok" };
     }
-    case "repair.add": {
-      const r = op.repair;
-      if (!r || typeof r !== "object") return invalid(ledger, "الإصلاح غير صحيح");
-      if (ledger.repairs.some((x) => x.id === r.id)) return { ledger, result: "already" };
-      const next: Repair = {
-        ...r,
-        notes: r.notes ?? "",
-        photo: r.photo ?? "",
-        deliveredDate: r.deliveredDate ?? "",
-        deliveredTime: r.deliveredTime ?? "",
-        paid: r.paid ?? 0,
-        cost: r.cost ?? 0,
-        updatedAt: op.at,
-        by: op.by ?? "",
-        origin: op.device ?? "",
-      };
-      const err = checkRepair(next, ledger);
-      if (err) return invalid(ledger, err);
-      return { ledger: { ...ledger, repairs: [...ledger.repairs, next] }, result: "ok" };
-    }
-    case "repair.update": {
-      const r = ledger.repairs.find((x) => x.id === op.id);
-      if (!r) return invalid(ledger, "هاد الإصلاح ما بقاش");
-      if (r.updatedAt === op.at) return { ledger, result: "already" };
-      if (r.updatedAt !== op.base) return { ledger, result: "conflict", message: CONFLICT };
-      const fields: (keyof Repair)[] = ["date", "time", "owner", "phone", "device", "problem", "price", "advance", "status", "notes", "photo", "deliveredDate", "deliveredTime", "paid", "cost"];
-      const next: Repair = { ...r, ...pick<Repair>(op.patch, fields), updatedAt: op.at, by: op.by ?? "", origin: op.device ?? "" };
-      const err = checkRepair(next, ledger);
-      if (err) return invalid(ledger, err);
-      return { ledger: { ...ledger, repairs: replace(ledger.repairs, r.id, next) }, result: "ok" };
-    }
-    case "repair.delete": {
-      if (!ledger.repairs.some((x) => x.id === op.id)) return { ledger, result: "already" };
-      return { ledger: { ...ledger, repairs: ledger.repairs.filter((x) => x.id !== op.id) }, result: "ok" };
-    }
-    case "claim.add": {
-      const c = op.claim;
-      if (!c || typeof c !== "object") return invalid(ledger, "الطلب غير صحيح");
-      if (ledger.claims.some((x) => x.id === c.id)) return { ledger, result: "already" };
-      const next: Claim = { ...c, updatedAt: op.at, by: op.by ?? "", origin: op.device ?? "" };
-      const err = checkClaim(next);
-      if (err) return invalid(ledger, err);
-      return { ledger: { ...ledger, claims: [...ledger.claims, next] }, result: "ok" };
-    }
-    case "claim.update": {
-      const c = ledger.claims.find((x) => x.id === op.id);
-      if (!c) return invalid(ledger, "هاد الطلب ما بقاش");
-      if (c.updatedAt === op.at) return { ledger, result: "already" };
-      if (c.updatedAt !== op.base) return { ledger, result: "conflict", message: CONFLICT };
-      const fields: (keyof Claim)[] = [
-        "date", "time", "customer", "phone", "item", "saleDate", "company", "servicePhone", "problem", "status",
-        "lastSentAt", "reminders", "resolvedDate", "resolvedTime", "notes",
-      ];
-      const next: Claim = { ...c, ...pick<Claim>(op.patch, fields), updatedAt: op.at, by: op.by ?? "", origin: op.device ?? "" };
-      const err = checkClaim(next);
-      if (err) return invalid(ledger, err);
-      return { ledger: { ...ledger, claims: replace(ledger.claims, c.id, next) }, result: "ok" };
-    }
-    case "claim.delete": {
-      if (!ledger.claims.some((x) => x.id === op.id)) return { ledger, result: "already" };
-      return { ledger: { ...ledger, claims: ledger.claims.filter((x) => x.id !== op.id) }, result: "ok" };
-    }
     case "approval.add": {
       const inner = op.op;
-      if (!inner || typeof inner !== "object" || !CREDIT_OPS.has(inner.type) || typeof inner.opId !== "string" || typeof inner.at !== "string" || Number.isNaN(Date.parse(inner.at))) {
+      if (!inner || typeof inner !== "object" || !APPROVABLE_OPS.has(inner.type) || typeof inner.opId !== "string" || typeof inner.at !== "string" || Number.isNaN(Date.parse(inner.at))) {
         return invalid(ledger, "الطلب غير صحيح");
       }
       if (!isLedgerId(op.id) || !op.id.startsWith("A-") || JSON.stringify(inner).length > 40_000) return invalid(ledger, "الطلب غير صحيح");
@@ -904,7 +454,7 @@ export function applyOp(ledger: Ledger, op: LedgerOp): Applied {
         return { ledger: done(ids, "ترفض")(ledger), result: "ok" };
       }
       if (op.decision !== "accept") return invalid(ledger, "القرار غير صحيح");
-      // What this change needs (a new customer, the sale a payment is for…) is accepted with it.
+      // What this change needs (an earlier waiting edit of the same product…) is accepted with it.
       const chain = approvalChain(waiting, a);
       let l = ledger;
       for (const x of chain) {
@@ -964,40 +514,26 @@ export function applyOp(ledger: Ledger, op: LedgerOp): Applied {
     }
     case "sale.add": {
       const lines = Array.isArray(op.lines) ? op.lines : [];
-      const purchases = Array.isArray(op.purchases) ? op.purchases : [];
       if (!lines.length || lines.length > 50) return invalid(ledger, "البيع خاوي");
       if (lines.every((l) => ledger.sales.some((s) => s.id === l.id))) return { ledger, result: "already" };
-      if (lines.some((l) => !l || typeof l !== "object") || purchases.some((p) => !p || typeof p !== "object")) return invalid(ledger, "البيع غير صحيح");
+      if (lines.some((l) => !l || typeof l !== "object")) return invalid(ledger, "البيع غير صحيح");
       for (const l of lines) {
         const err = checkSale(l);
         if (err) return invalid(ledger, err);
         if (ledger.sales.some((s) => s.id === l.id)) return invalid(ledger, "رقم البيع مكرر");
         if (l.ticket !== lines[0].ticket) return invalid(ledger, "رقم التيكي غير صحيح");
       }
-      if (lines[0].type === "كريدي") {
-        const c = findClient(lines[0].clientId);
-        if (!c) return invalid(ledger, "الزبون ما بقاش");
-        if (purchases.length !== lines.length) return invalid(ledger, "البيع بالكريدي خاصو السلع");
-        for (const [i, l] of lines.entries()) {
-          const p = purchases[i];
-          if (l.type !== "كريدي" || l.clientId !== c.id || l.purchaseId !== p.id || p.clientId !== c.id) return invalid(ledger, "البيع بالكريدي غير صحيح");
-          if (p.price !== l.sellPrice || ledger.purchases.some((x) => x.id === p.id)) return invalid(ledger, "البيع بالكريدي غير صحيح");
-          const err = checkPurchase(p);
-          if (err) return invalid(ledger, err);
-        }
-      } else if (purchases.length || lines.some((l) => l.type !== "كاش" || l.clientId || l.purchaseId)) {
-        return invalid(ledger, "البيع كاش ما فيهش زبون");
-      }
       // Products from stock go out (unknown ones are simply not tracked).
       const out = new Map<string, number>();
       for (const l of lines) if (l.stockId && ledger.stock.some((s) => s.id === l.stockId)) out.set(l.stockId, (out.get(l.stockId) ?? 0) + l.quantity);
-      const stock = ledger.stock.map((s) => (out.has(s.id) ? { ...s, quantity: s.quantity - out.get(s.id)!, updatedAt: op.at, ...origin(op) } : s));
+      // Only the quantity moves (a difference): `updatedAt` stays, so an edit of the product made
+      // meanwhile (or waiting for the owner) is not refused as a conflict.
+      const stock = ledger.stock.map((s) => (out.has(s.id) ? { ...s, quantity: s.quantity - out.get(s.id)!, ...origin(op) } : s));
       return {
         ledger: {
           ...ledger,
           stock,
           sales: [...ledger.sales, ...lines.map((l) => ({ ...l, stockId: out.has(l.stockId) ? l.stockId : "", updatedAt: op.at }))],
-          purchases: [...ledger.purchases, ...purchases.map((p) => ({ ...p, updatedAt: op.at }))],
         },
         result: "ok",
       };
@@ -1005,16 +541,7 @@ export function applyOp(ledger: Ledger, op: LedgerOp): Applied {
     case "sale.delete": {
       const s = ledger.sales.find((x) => x.id === op.id);
       if (!s) return { ledger, result: "already" };
-      const after = restock(ledger, [s], op);
-      return {
-        ledger: {
-          ...after,
-          sales: ledger.sales.filter((x) => x.id !== s.id),
-          purchases: s.purchaseId ? ledger.purchases.filter((p) => p.id !== s.purchaseId) : ledger.purchases,
-          payments: s.purchaseId ? ledger.payments.map((p) => (p.purchaseId === s.purchaseId ? { ...p, purchaseId: "" } : p)) : ledger.payments,
-        },
-        result: "ok",
-      };
+      return { ledger: { ...restock(ledger, [s], op), sales: ledger.sales.filter((x) => x.id !== s.id) }, result: "ok" };
     }
     case "caisse.close": {
       const k = op.close;
@@ -1022,7 +549,7 @@ export function applyOp(ledger: Ledger, op: LedgerOp): Applied {
       if (ledger.closings.some((x) => x.id === k.id)) return { ledger, result: "already" };
       if (!isLedgerId(k.id) || !k.id.startsWith("K-") || !date(k.date) || !k.date || !time(k.time)) return invalid(ledger, "معلومات الصندوق غير صحيحة");
       if (!text(k.clerk, 100) || !text(k.expensesNote, 500) || !text(k.notes, 1000)) return invalid(ledger, "معلومات الصندوق غير صحيحة");
-      if (![k.cashSales, k.advances, k.installments, k.repairs ?? 0, k.expected].every(amount) || !money(k.expenses) || (k.counted !== null && !money(k.counted))) {
+      if (![k.cashSales, k.expected].every(amount) || !money(k.expenses) || (k.counted !== null && !money(k.counted))) {
         return invalid(ledger, "المبالغ غير صحيحة");
       }
       return { ledger: { ...ledger, closings: [...ledger.closings, k] }, result: "ok" };
@@ -1030,174 +557,16 @@ export function applyOp(ledger: Ledger, op: LedgerOp): Applied {
   }
 }
 
-/** Cancelled sales give their products back to stock. */
+/** Cancelled sales give their products back to stock (a quantity change only, like a sale). */
 function restock(ledger: Ledger, sales: Sale[], op: LedgerOp): Ledger {
-  const at = op.at;
   const back = new Map<string, number>();
   for (const s of sales) if (s.stockId) back.set(s.stockId, (back.get(s.stockId) ?? 0) + s.quantity);
   if (!back.size) return ledger;
-  return { ...ledger, stock: ledger.stock.map((x) => (back.has(x.id) ? { ...x, quantity: x.quantity + back.get(x.id)!, updatedAt: at, ...origin(op) } : x)) };
-}
-
-/** A payment can only point to a purchase of the same customer. */
-function purchaseOf(ledger: Ledger, purchaseId: string, clientId: string): string {
-  return purchaseId && ledger.purchases.some((p) => p.id === purchaseId && p.clientId === clientId) ? purchaseId : "";
+  return { ...ledger, stock: ledger.stock.map((x) => (back.has(x.id) ? { ...x, quantity: x.quantity + back.get(x.id)!, ...origin(op) } : x)) };
 }
 
 export function applyOps(ledger: Ledger, ops: LedgerOp[]): Ledger {
   return ops.reduce((l, op) => applyOp(l, op).ledger, ledger);
-}
-
-// ---------------------------------------------------------------- summaries
-
-export interface ItemStatus {
-  purchase: Purchase;
-  paid: number;
-  remaining: number;
-}
-
-export interface ClientSummary {
-  client: Client;
-  purchases: Purchase[];
-  payments: Payment[];
-  total: number;
-  paid: number;
-  remaining: number;
-  lastPaymentDate: string;
-  /** Last purchase or payment. */
-  lastActivity: string;
-  status: DueStatus;
-  items: ItemStatus[];
-  /** Fully paid more than 3 months ago: can go to the archive. */
-  archivable: boolean;
-}
-
-const byDate = <T extends { date: string; createdAt: string }>(a: T, b: T) =>
-  a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt);
-
-export function sortPayments(list: Payment[]): Payment[] {
-  return [...list].sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.createdAt.localeCompare(b.createdAt));
-}
-
-/**
- * How much of each purchase is paid: payments chosen for an item go to it,
- * general payments fill the oldest unpaid items first.
- */
-export function itemStatuses(purchases: Purchase[], payments: Payment[]): ItemStatus[] {
-  const items = [...purchases].sort(byDate).map((p) => ({
-    purchase: p,
-    paid: payments.filter((x) => x.purchaseId === p.id).reduce((s, x) => s + x.amount, 0),
-    remaining: 0,
-  }));
-  let pool = payments.filter((x) => !x.purchaseId || !purchases.some((p) => p.id === x.purchaseId)).reduce((s, x) => s + x.amount, 0);
-  // Paid more than a product's price (e.g. 500 on 50 left): the rest goes to the oldest products still unpaid.
-  for (const it of items) {
-    if (it.paid > it.purchase.price) {
-      pool += it.paid - it.purchase.price;
-      it.paid = it.purchase.price;
-    }
-  }
-  for (const it of items) {
-    const room = Math.max(0, it.purchase.price - it.paid);
-    const take = Math.min(room, pool);
-    it.paid += take;
-    pool -= take;
-  }
-  for (const it of items) it.remaining = Math.max(0, round(it.purchase.price - it.paid));
-  return items;
-}
-
-const round = (n: number) => Math.round(n * 100) / 100;
-
-/**
- * How a payment is spread over the products: first what is left on its own
- * product, the rest on the oldest products still unpaid. `before` are the
- * customer's earlier payments.
- */
-export function paymentSplit(purchases: Purchase[], before: Payment[], payment: Payment): { purchase: Purchase; amount: number }[] {
-  const pre = itemStatuses(purchases, before);
-  return itemStatuses(purchases, [...before, payment])
-    .map((it, i) => ({ purchase: it.purchase, amount: round(it.paid - pre[i].paid) }))
-    .filter((x) => x.amount > 0);
-}
-
-export function summarizeClient(ledger: Ledger, clientOrId: Client, today: string): ClientSummary {
-  // Always the latest version of the customer in this ledger.
-  const client = ledger.clients.find((c) => c.id === clientOrId.id) ?? clientOrId;
-  const purchases = ledger.purchases.filter((p) => p.clientId === client.id).sort(byDate);
-  const payments = sortPayments(ledger.payments.filter((p) => p.clientId === client.id));
-  const total = round(purchases.reduce((s, p) => s + p.price, 0));
-  const paid = round(payments.reduce((s, p) => s + p.amount, 0));
-  const remaining = round(total - paid);
-  const lastPaymentDate = payments.length ? payments[payments.length - 1].date : "";
-  const lastPurchaseDate = purchases.length ? purchases[purchases.length - 1].date : "";
-  // Last purchase or payment; the date the customer was added only counts when there is neither
-  // (customers moved from the old sheet were all "added" on the day of the move).
-  const lastActivity = [lastPaymentDate, lastPurchaseDate].sort().pop() || client.createdAt.slice(0, 10);
-  return {
-    client,
-    purchases,
-    payments,
-    total,
-    paid,
-    remaining,
-    lastPaymentDate,
-    lastActivity,
-    status: dueStatus(client.nextDueDate, remaining, today),
-    items: itemStatuses(purchases, payments),
-    archivable: purchases.length > 0 && remaining <= 0 && !!lastActivity && addMonths(lastActivity, 3) < today,
-  };
-}
-
-export function summarize(ledger: Ledger, today: string): ClientSummary[] {
-  return ledger.clients.map((c) => summarizeClient(ledger, c, today));
-}
-
-/** The purchase a new payment goes to by default: the oldest one not fully paid. */
-export function defaultPurchaseFor(s: ClientSummary): string {
-  return s.items.find((i) => i.remaining > 0)?.purchase.id ?? "";
-}
-
-/** Names of the items still being paid, for reminders. */
-export function unpaidItems(s: ClientSummary): string[] {
-  return s.items.filter((i) => i.remaining > 0).map((i) => i.purchase.item);
-}
-
-/** Months left at the current instalment. */
-export function monthsToFinish(remaining: number, installment: number, period: string): number | null {
-  if (remaining <= 0) return 0;
-  if (installment <= 0) return null;
-  const perMonth = period.includes("سيمانة") ? installment * 4.33 : period.includes("15") ? installment * 2 : installment;
-  return Math.ceil(remaining / perMonth);
-}
-
-/**
- * The latest next due date allowed after a payment made on `paidDate`: one
- * agreed period after the payment (e.g. paid 10/11, monthly → 10/12).
- * "" when the period is set by hand (no limit).
- */
-export function latestNextDue(client: Client, paidDate: string): string {
-  if (!client.period || isManualPeriod(client.period)) return "";
-  return nextDateForPeriod(client.period, paidDate);
-}
-
-/**
- * Next due date after a payment made on `paidDate`: the next date on the
- * customer's schedule (the due date that was set + one period, two…) that
- * comes after the payment day. A late customer isn't given extra time (due
- * 31/10, monthly, paid 10/11 → 30/11, not 10/12), the date is never before
- * the payment day (due 31/08, paid 10/11 → 30/11), and never later than one
- * period after the payment (see latestNextDue).
- */
-export function suggestNextDue(client: Client, paidDate: string): string {
-  const latest = latestNextDue(client, paidDate);
-  if (!latest) return client.nextDueDate;
-  if (!client.nextDueDate) return latest;
-  for (let k = 1; k <= 1000; k++) {
-    const d = addPeriods(client.period, client.nextDueDate, k);
-    if (d > paidDate) return d < latest ? d : latest;
-  }
-  return latest;
 }
 
 export function nowParts(now = new Date()): { date: string; time: string } {

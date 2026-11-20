@@ -6,18 +6,9 @@ import { asRequest, needsApproval, withPending } from "@/lib/approvals";
 import { thisDevice } from "@/lib/change-origin";
 import { isOutdated } from "@/lib/app-version";
 import { idbGet, idbSet } from "@/lib/idb";
-import {
-  applyOps,
-  newLedgerId,
-  normalizeLedger,
-  summarize,
-  type ClientSummary,
-  type Ledger,
-  type LedgerOp,
-  type OpResult,
-} from "@/lib/ledger";
+import { applyOps, newLedgerId, normalizeLedger, type Ledger, type LedgerOp, type OpResult } from "@/lib/ledger";
 import type { Me } from "@/lib/roles";
-import { todayISO } from "@/lib/sheet-logic";
+import { todayISO } from "@/lib/dates";
 
 const SNAPSHOT_KEY = "ledger-snapshot";
 const QUEUE_KEY = "ledger-queue";
@@ -44,7 +35,7 @@ interface Snapshot {
   me?: Me;
 }
 
-type OpInput = LedgerOp extends infer T ? (T extends LedgerOp ? Omit<T, "opId" | "at"> : never) : never;
+export type OpInput = LedgerOp extends infer T ? (T extends LedgerOp ? Omit<T, "opId" | "at"> : never) : never;
 
 export interface LedgerState {
   /** The logged-in user (null until known). */
@@ -55,7 +46,6 @@ export interface LedgerState {
   pendingIds: Set<string>;
   /** Waiting changes that can no longer be applied as they are, with why. */
   brokenApprovals: Map<string, string>;
-  summaries: ClientSummary[];
   today: string;
   online: boolean;
   syncing: boolean;
@@ -261,14 +251,11 @@ export function useLedger(): LedgerState {
   const view = useMemo(() => (base ? withPending(base) : null), [base]);
   const ledger = view?.ledger ?? null;
 
-  const summaries = useMemo(() => (ledger ? summarize(ledger, today) : []), [ledger, today]);
-
   return {
     me,
     ledger,
     pendingIds: view?.pendingIds ?? EMPTY_IDS,
     brokenApprovals: view?.broken ?? EMPTY_BROKEN,
-    summaries,
     today,
     online,
     syncing,
@@ -283,7 +270,7 @@ export function useLedger(): LedgerState {
       const origin = { by: me?.name ?? "", device: thisDevice() };
       const items = ops.map((o) => {
         const op = { ...o, opId: newLedgerId("O"), at: stamp(), ...origin } as LedgerOp;
-        // A seller's credit change waits for the owner (the server does the same).
+        // A seller's change under one of the shop's approval rules waits for the owner (the server does the same).
         const wait = ledger ? needsApproval(me, op, ledger) : false;
         return { op: wait ? asRequest(op) : op, label: wait ? `⏳ ${label}` : label, status: "pending" as const };
       });
@@ -301,13 +288,7 @@ export function useLedger(): LedgerState {
           const op = { ...q.op } as LedgerOp;
           // Re-base an edit on what the sheet holds now (the user chose to apply it anyway).
           if (current && "base" in op) {
-            const list = op.type.startsWith("client")
-              ? current.clients
-              : op.type.startsWith("purchase")
-                ? current.purchases
-                : op.type.startsWith("stock")
-                  ? current.stock
-                  : current.payments;
+            const list: { id: string; updatedAt: string }[] = op.type.startsWith("note") ? current.notes : current.stock;
             const rec = list.find((r) => r.id === op.id);
             if (rec) op.base = rec.updatedAt;
           }

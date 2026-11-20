@@ -17,9 +17,8 @@ import {
   type RemindPreset,
 } from "@/lib/notes";
 import { whatsappLink, SHOP } from "@/lib/receipt";
-import { useNow } from "./ClaimsView";
+import { useNow } from "./useNow";
 import { displayDate } from "@/lib/receipt";
-import { ownerForPhone } from "@/lib/repairs";
 import { can } from "@/lib/roles";
 import { Modal } from "./Modal";
 import { Confirm, Field } from "./ui";
@@ -221,11 +220,6 @@ function whenShort(iso: string, today: string): string {
   return p.date === today ? p.time : `${p.date.slice(8, 10)}/${p.date.slice(5, 7)} ${p.time}`;
 }
 
-/** Customer's name from the phone, from the data on the device (customers, earlier repairs). */
-function useCustomerFill(data: LedgerState) {
-  return (phone: string) => ownerForPhone(phone, data.ledger!)?.name ?? "";
-}
-
 /** The top of the page: write a line at once, with a customer if it's about one. */
 function NoteWriter({ data, onToast }: { data: LedgerState; onToast: (msg: string) => void }) {
   const [text, setText] = useState("");
@@ -234,7 +228,6 @@ function NoteWriter({ data, onToast }: { data: LedgerState; onToast: (msg: strin
   const [customer, setCustomer] = useState("");
   const [phone, setPhone] = useState("");
   const [remind, setRemind] = useState<Remind>(NO_REMIND);
-  const fill = useCustomerFill(data);
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -311,11 +304,7 @@ function NoteWriter({ data, onToast }: { data: LedgerState; onToast: (msg: strin
               aria-label="تيليفون الزبون"
               placeholder="التيليفون"
               value={phone}
-              onChange={(e) => {
-                setPhone(e.target.value);
-                const name = fill(e.target.value);
-                if (name && !customer.trim()) setCustomer(name);
-              }}
+              onChange={(e) => setPhone(e.target.value)}
             />
             <input aria-label="سمية الزبون" placeholder="السمية" value={customer} onChange={(e) => setCustomer(e.target.value)} />
           </div>
@@ -349,7 +338,6 @@ function NoteEditor({ data, note: n, onClose, onToast }: { data: LedgerState; no
   const [v, setV] = useState({ text: n.text, kind: n.kind, customer: n.customer, phone: n.phone, done: n.done, remindDate: n.remindDate ?? "", remindTime: n.remindTime ?? "" });
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState(false);
-  const fill = useCustomerFill(data);
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -411,10 +399,7 @@ function NoteEditor({ data, note: n, onClose, onToast }: { data: LedgerState; no
             inputMode="tel"
             dir="ltr"
             value={v.phone}
-            onChange={(e) => {
-              const name = fill(e.target.value);
-              setV({ ...v, phone: e.target.value, customer: name && !v.customer.trim() ? name : v.customer });
-            }}
+            onChange={(e) => setV({ ...v, phone: e.target.value })}
           />
         </Field>
         <Field id="note-edit-customer" label="سمية الزبون">

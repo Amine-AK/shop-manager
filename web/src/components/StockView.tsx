@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { freshShopCode, isEan13, isShopCode, newShopCode, shopCodeOf as shopCodeOfItem, usedCodes } from "@/lib/barcode";
 import { downloadStickerPng } from "@/lib/barcode-image";
 import { money } from "@/lib/format";
-import { CONDITIONS, newLedgerId, nowParts, productCodes, STICKER_LOOK_KEY, type Condition, type StockItem } from "@/lib/ledger";
+import { CONDITIONS, newLedgerId, nowParts, productCodes, STICKER_LOOK_KEY, type Condition, type LedgerOp, type StockItem } from "@/lib/ledger";
+import { needsApproval } from "@/lib/approvals";
 import { displayDate, SHOP } from "@/lib/receipt";
 import { currentSeller, findByCode, normalizeText, parseCodes, round2, searchStock } from "@/lib/shop";
 import { fixAzertyDigits } from "@/lib/scanner-input";
@@ -17,7 +18,7 @@ import { useLabelSetup } from "./LabelSetup";
 import { EyeButton, shown, useHiddenAmount } from "./HideAmount";
 import { useScannerInput } from "./useScannerInput";
 import { Modal } from "./Modal";
-import type { LedgerState } from "./useLedger";
+import type { LedgerState, OpInput } from "./useLedger";
 import { Confirm, Field, parseAmount } from "./ui";
 
 const LOW = 1;
@@ -34,7 +35,13 @@ type Sub =
   | { kind: "category"; name?: string }
   | null;
 
+/** Will this change of the logged-in seller wait for the owner? (shown in the message after saving) */
+function waitsFor(data: LedgerState, op: OpInput): boolean {
+  return needsApproval(data.me, { ...op, opId: "", at: "" } as LedgerOp, data.ledger!);
+}
+
 export function StockView({ data, onToast }: { data: LedgerState; onToast: (msg: string) => void }) {
+  const waits = (op: OpInput) => waitsFor(data, op);
   const ledger = data.ledger!;
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
@@ -188,7 +195,10 @@ export function StockView({ data, onToast }: { data: LedgerState; onToast: (msg:
                 aria-label={fullStock ? `تعديل ${s.item}` : `زيد الكمية ديال ${s.item}`}
               >
                 <span className="stock-name">
-                  <strong>{s.item}</strong>
+                  <strong>
+                    {s.item}
+                    {data.pendingIds.has(s.id) && <span title="فيها تعديل كيتسنى موافقة المالك"> ⏳</span>}
+                  </strong>
                   <span className="muted small">
                     {s.category || "بلا فئة"} · {s.condition}
                     {productCodes(s).length > 1 ? ` · 🏷️ ${productCodes(s).length} أكواد` : s.serial ? ` · ${s.serial}` : ""}
@@ -293,8 +303,9 @@ export function StockView({ data, onToast }: { data: LedgerState; onToast: (msg:
           danger
           onClose={() => setSub(null)}
           onConfirm={() => {
-            data.run(`حذف سلعة · ${sub.item.item}`, { type: "stock.delete", id: sub.item.id });
-            onToast("تحذفات السلعة من المخزون");
+            const op = { type: "stock.delete" as const, id: sub.item.id };
+            data.run(`حذف سلعة · ${sub.item.item}`, op);
+            onToast(waits(op) ? "⏳ الحذف كيتسنى موافقة المالك" : "تحذفات السلعة من المخزون");
             setSub(null);
           }}
         >
@@ -389,8 +400,9 @@ function StockForm({
     const at = new Date().toISOString();
     const fields = { item: v.item.trim(), category: categoryName, condition: v.condition, buyPrice: buy || 0, sellPrice: sell, serial: codes[0] ?? "", codes: codes.slice(1), notes: v.notes.trim() };
     if (item) {
-      data.run(`تعديل سلعة · ${fields.item}`, { type: "stock.update", id: item.id, base: item.updatedAt, patch: fields });
-      return onSaved("تبدلات السلعة");
+      const op = { type: "stock.update" as const, id: item.id, base: item.updatedAt, patch: fields };
+      data.run(`تعديل سلعة · ${fields.item}`, op);
+      return onSaved(waitsFor(data, op) ? "⏳ الثمن الجديد كيتسنى موافقة المالك" : "تبدلات السلعة");
     }
     const added: StockItem = { id: newId, ...fields, quantity: Number(v.quantity), createdAt: at, updatedAt: at };
     data.run(`سلعة جديدة · ${fields.item}`, { type: "stock.add", item: added });
@@ -618,8 +630,8 @@ function AdjustForm({
     e.preventDefault();
     if (!Number.isInteger(qty) || qty < 0 || (qty === 0 && !newCode)) return setError("الكمية غير صحيحة");
     const delta = sign * qty;
-    data.run(`${delta > 0 ? "+" : ""}${delta} · ${item.item}`, {
-      type: "stock.adjust",
+    const op = {
+      type: "stock.adjust" as const,
       move: {
         id: newLedgerId("M"),
         stockId: item.id,
@@ -630,8 +642,9 @@ function AdjustForm({
         createdAt: new Date().toISOString(),
         ...(newCode ? { codesIn: [newCode] } : {}),
       },
-    });
-    onSaved(`الكمية ولات ${item.quantity + delta}`);
+    };
+    data.run(`${delta > 0 ? "+" : ""}${delta} · ${item.item}`, op);
+    onSaved(waitsFor(data, op) ? "⏳ النقص كيتسنى موافقة المالك" : `الكمية ولات ${item.quantity + delta}`);
     onClose();
   }
 

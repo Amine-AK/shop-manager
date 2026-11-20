@@ -119,7 +119,7 @@ function Ticket({ lines, paper }: { lines: Sale[]; paper: Paper }) {
         </p>
       )}
       <div className="ticket-amount">
-        <span>المجموع ({first.type})</span>
+        <span>المجموع</span>
         <strong>{money(total)}</strong>
       </div>
       <hr />

@@ -2,7 +2,7 @@ import "server-only";
 import { randomBytes, scrypt as scryptCb, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { checkPassword } from "./auth";
-import { isService, type ClientScope, type Me, type Role, type Service } from "./roles";
+import { isService, type Me, type Role, type Service } from "./roles";
 import { appendRows, ensureTabs, findTab, readIds, readTables, updateRows, type Cell } from "./sheets";
 
 // Employee accounts, in their own tab «المستخدمين». Passwords are stored hashed
@@ -12,9 +12,7 @@ import { appendRows, ensureTabs, findTab, readIds, readTables, updateRows, type 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
 
 export const USERS_TAB = "المستخدمين";
-const HEADER = ["رقم", "الاسم", "اسم الدخول", "الدور", "الخدمات", "يشوف ثمن الشراء والربح", "مفعل", "كلمة السر (مشفرة)", "تاريخ الإضافة", "آخر تعديل", "الزبناء لي كيتبع"];
-/** Column «الزبناء لي كيتبع»: all customers, or only the special ones (type 1). */
-const SCOPE_TEXT: Record<ClientScope, string> = { all: "الكل", special: "غير الخاصين" };
+const HEADER = ["رقم", "الاسم", "اسم الدخول", "الدور", "الخدمات", "يشوف ثمن الشراء والربح", "مفعل", "كلمة السر (مشفرة)", "تاريخ الإضافة", "آخر تعديل"];
 export const OWNER_LOGIN = "owner";
 export const MIN_PASSWORD = 8;
 
@@ -63,12 +61,11 @@ function rowToUser(r: unknown[]): UserRecord | null {
     passwordHash: s(7),
     createdAt: s(8),
     updatedAt: s(9),
-    clientScope: role === "seller" && s(10) === SCOPE_TEXT.special ? "special" : "all",
   };
 }
 
 function userToRow(u: UserRecord): Cell[] {
-  return [u.id, u.name, u.login, u.role, u.services.join(","), u.seeCost ? "نعم" : "لا", u.active ? "نعم" : "لا", u.passwordHash, u.createdAt, u.updatedAt, SCOPE_TEXT[u.clientScope ?? "all"]];
+  return [u.id, u.name, u.login, u.role, u.services.join(","), u.seeCost ? "نعم" : "لا", u.active ? "نعم" : "لا", u.passwordHash, u.createdAt, u.updatedAt];
 }
 
 let cache: { at: number; users: UserRecord[] } | null = null;
@@ -97,7 +94,7 @@ export async function authenticate(login: string, password: string): Promise<{ m
   return { me: toMe(user), pv: passwordVersion(user) };
 }
 
-export const toMe = (u: UserRecord): Me => ({ id: u.id, name: u.name, role: u.role, services: u.services, seeCost: u.seeCost, clientScope: u.clientScope ?? "all" });
+export const toMe = (u: UserRecord): Me => ({ id: u.id, name: u.name, role: u.role, services: u.services, seeCost: u.seeCost });
 
 /** The account behind a session, if still active and with the same password. */
 export async function userForSession(uid: string, pv: string): Promise<Me | null> {
@@ -114,8 +111,6 @@ export interface UserInput {
   role: Role;
   services: Service[];
   seeCost: boolean;
-  /** Sellers: follow all customers, or only the special ones. */
-  clientScope?: ClientScope;
   active: boolean;
   /** New password; empty = keep the current one. */
   password?: string;
@@ -145,7 +140,6 @@ export async function saveUser(input: UserInput): Promise<PublicUser> {
     role: input.role,
     services: input.role === "seller" ? input.services.filter(isService) : [],
     seeCost: input.role === "owner" ? true : Boolean(input.seeCost),
-    clientScope: input.role === "seller" && input.clientScope === "special" ? "special" : "all",
     active: Boolean(input.active),
     passwordHash: input.password ? await hashPassword(input.password) : old!.passwordHash,
     createdAt: old?.createdAt ?? now,

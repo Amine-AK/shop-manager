@@ -51,7 +51,7 @@ export function DevResetDialog({ data, onClose, onToast }: { data: LedgerState; 
       </p>
       <div className="alert error">
         <span>
-          غادي يتمسحو من الـ Google Sheet <strong>جميع</strong>: الزبناء، المشتريات، الدفعات، المخزون، المبيعات، الصندوق، الأرشيف وسجل التذكيرات. العناوين كيبقاو والفئات الأصلية كترجع. ما
+          غادي يتمسحو من الـ Google Sheet <strong>جميع</strong>: المخزون، المبيعات، الصندوق، الكناش والموافقات. العناوين كيبقاو والفئات الأصلية كترجع. ما
           يمكنش ترجعو.
         </span>
       </div>

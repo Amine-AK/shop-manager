@@ -20,7 +20,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const me = await requireUser("owner_only");
   if (me instanceof Response) return me;
-  const body = await readJson<{ id?: string; name?: string; login?: string; role?: Role; services?: Service[]; seeCost?: boolean; clientScope?: string; active?: boolean; password?: string }>(request);
+  const body = await readJson<{ id?: string; name?: string; login?: string; role?: Role; services?: Service[]; seeCost?: boolean; active?: boolean; password?: string }>(request);
   if (body instanceof Response) return body;
   try {
     const user = await saveUser({
@@ -30,7 +30,6 @@ export async function POST(request: Request) {
       role: (body.role ?? "seller") as Role,
       services: Array.isArray(body.services) ? body.services : [],
       seeCost: Boolean(body.seeCost),
-      clientScope: body.clientScope === "special" ? "special" : "all",
       active: body.active !== false,
       password: typeof body.password === "string" && body.password ? body.password : undefined,
     });

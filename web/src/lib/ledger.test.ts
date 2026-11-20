@@ -1,409 +1,126 @@
 import { describe, expect, it } from "vitest";
-import {
-  applyOp,
-  applyOps,
-  defaultPurchaseFor,
-  EMPTY_LEDGER,
-  isLedgerId,
-  monthsToFinish,
-  newLedgerId,
-  summarizeClient,
-  itemStatuses,
-  paymentSplit,
-  type Client,
-  type Ledger,
-  type LedgerOp,
-  type Payment,
-  type Purchase,
-  clientPhones,
-  latestNextDue,
-  suggestNextDue,
-} from "./ledger";
-import { HEADERS, ledgerToRows, migrateOldRows, rowsToLedger, sameRow, TABS } from "./ledger-sheet";
-import { matchesClient } from "./format";
-import { paymentMessage, paymentReceipt, statement, statementMessage, whatsappLink } from "./receipt";
+import { applyOp, applyOps, EMPTY_LEDGER, isLedgerId, newLedgerId, type CaisseClose, type Ledger, type LedgerOp, type Sale, type StockItem } from "./ledger";
+import { HEADERS, ledgerToRows, rowsToLedger, sameRow, TABS, type TableKey } from "./ledger-sheet";
+import { whatsappLink } from "./receipt";
 
 const T0 = "2026-01-10T10:00:00.000Z";
 let n = 0;
 const op = <T extends object>(body: T, at = `2026-01-10T10:00:${String(++n).padStart(2, "0")}.000Z`) =>
   ({ ...body, opId: `O-TEST${n}`, at }) as unknown as LedgerOp;
 
-const client: Client = { id: "C-AAAA1111", name: "محمد صاحب سمير", phone: "0661234567", installment: 1000, period: "شهر", nextDueDate: "2026-02-10", notes: "", createdAt: T0, updatedAt: T0 };
-const fridge: Purchase = { id: "S-FRIDGE01", clientId: client.id, date: "2026-01-10", item: "ثلاجة", price: 6000, notes: "", createdAt: T0, updatedAt: T0 };
-const washer: Purchase = { id: "S-WASHER01", clientId: client.id, date: "2026-04-15", item: "ماشينة الصابون", price: 2500, notes: "", createdAt: T0, updatedAt: T0 };
-const pay = (id: string, date: string, amount: number, purchaseId = "", kind: Payment["kind"] = "دفعة"): Payment => ({
-  id, clientId: client.id, purchaseId, date, time: "10:00", amount, kind, notes: "", createdAt: `${date}T10:00:00Z`, updatedAt: T0,
+const charger: StockItem = {
+  id: "I-CHARGE01", item: "شارجور Type-C", category: "إكسسوارات", condition: "جديد", buyPrice: 40, sellPrice: 80, quantity: 10,
+  serial: "6111111111111", codes: [], notes: "", createdAt: T0, updatedAt: T0,
+};
+const line = (id: string, over: Partial<Sale> = {}): Sale => ({
+  id, ticket: "V-TICKET01", date: "2026-01-10", time: "10:00", item: charger.item, category: charger.category, stockId: charger.id, quantity: 2,
+  buyPrice: 80, listPrice: 160, sellPrice: 150, seller: "", notes: "", createdAt: T0, updatedAt: T0, ...over,
 });
 
-/** The user's example: fridge 6000, 2000 down, 1000/month, then a washer 2500 with 1500 down. */
-function example(): Ledger {
-  return applyOps(EMPTY_LEDGER, [
-    op({ type: "client.add", client }),
-    op({ type: "purchase.add", purchase: fridge }),
-    op({ type: "payment.add", payment: pay("P-PAY00001", "2026-01-10", 2000, fridge.id, "تسبيق") }),
-    op({ type: "payment.add", payment: pay("P-PAY00002", "2026-02-10", 1000) }),
-    op({ type: "payment.add", payment: pay("P-PAY00003", "2026-03-10", 1000) }),
-    op({ type: "payment.add", payment: pay("P-PAY00004", "2026-04-10", 1000) }),
-    op({ type: "purchase.add", purchase: washer }),
-    op({ type: "payment.add", payment: pay("P-PAY00005", "2026-04-15", 1500, washer.id, "تسبيق"), nextDueDate: "2026-05-10" }),
-  ]);
+function shop(): Ledger {
+  return applyOps(EMPTY_LEDGER, [op({ type: "stock.add", item: charger })]);
 }
 
-describe("one running debt per customer", () => {
-  it("adds purchases and payments into one balance, with each item's status", () => {
-    const s = summarizeClient(example(), client, "2026-04-20");
-    expect(s).toMatchObject({ total: 8500, paid: 6500, remaining: 2000, lastPaymentDate: "2026-04-15", status: "upcoming" });
-    expect(s.client.nextDueDate).toBe("2026-05-10");
-    // Fridge: 2000 chosen for it + 3000 general → 1000 left. Washer: 1500 chosen → 1000 left.
-    expect(s.items.map((i) => [i.purchase.item, i.remaining])).toEqual([["ثلاجة", 1000], ["ماشينة الصابون", 1000]]);
-    expect(defaultPurchaseFor(s)).toBe(fridge.id);
+describe("sales take products out of stock", () => {
+  it("a sale of 2 takes 2 out; cancelling it puts them back", () => {
+    const sold = applyOp(shop(), op({ type: "sale.add", lines: [line("V-TICKET01")] }));
+    expect(sold.result).toBe("ok");
+    expect(sold.ledger.stock[0].quantity).toBe(8);
+    expect(sold.ledger.sales).toHaveLength(1);
+    const back = applyOp(sold.ledger, op({ type: "sale.delete", id: "V-TICKET01" }));
+    expect(back.ledger.stock[0].quantity).toBe(10);
+    expect(back.ledger.sales).toHaveLength(0);
   });
 
-  it("estimates the months left at the current instalment", () => {
-    expect(monthsToFinish(2000, 1000, "شهر")).toBe(2);
-    expect(monthsToFinish(2000, 250, "سيمانة")).toBe(2);
-    expect(monthsToFinish(0, 1000, "شهر")).toBe(0);
-    expect(monthsToFinish(2000, 0, "شهر")).toBeNull();
+  it("a quantity change keeps the product's version (an edit made meanwhile is not a conflict)", () => {
+    const l = shop();
+    const base = l.stock[0].updatedAt;
+    const sold = applyOp(l, op({ type: "sale.add", lines: [line("V-TICKET01")] })).ledger;
+    const moved = applyOp(sold, op({ type: "stock.adjust", move: { id: "M-MOVE0001", stockId: charger.id, date: "2026-01-10", delta: -1, reason: "ضايعة", seller: "", createdAt: T0 } })).ledger;
+    expect(moved.stock[0].updatedAt).toBe(base);
+    expect(applyOp(moved, op({ type: "stock.update", id: charger.id, base, patch: { sellPrice: 90 } })).result).toBe("ok");
   });
 
-  it("logs instalment changes with the old values", () => {
-    let l = example();
-    const r = applyOp(l, op({ type: "client.installment", id: client.id, base: l.clients[0].updatedAt, change: { id: "T-CHANGE01", clientId: client.id, date: "2026-04-15", oldAmount: 0, newAmount: 1500, oldPeriod: "", newPeriod: "شهر", reason: "شرا ماشينة الصابون", createdAt: T0 } }));
-    expect(r.result).toBe("ok");
-    l = r.ledger;
-    expect(l.clients[0].installment).toBe(1500);
-    expect(l.changes[0]).toMatchObject({ oldAmount: 1000, newAmount: 1500, oldPeriod: "شهر", reason: "شرا ماشينة الصابون" });
-  });
-
-  it("ignores the date a customer was added once they have bought or paid", () => {
-    const moved = { ...client, createdAt: "2026-10-30T09:00:00Z" };
-    const l = applyOps(EMPTY_LEDGER, [
-      op({ type: "client.add", client: moved }),
-      op({ type: "purchase.add", purchase: { ...fridge, price: 500 } }),
-      op({ type: "payment.add", payment: pay("P-PAYOLD01", "2026-04-01", 500) }),
-    ]);
-    const s = summarizeClient(l, moved, "2026-10-30");
-    expect(s.lastActivity).toBe("2026-04-01");
-    expect(s.archivable).toBe(true);
-  });
-
-  it("can be archived 3 months after the last payment that cleared the debt", () => {
-    const l = applyOp(example(), op({ type: "payment.add", payment: pay("P-PAY00006", "2026-05-10", 2000) })).ledger;
-    expect(summarizeClient(l, client, "2026-08-09").archivable).toBe(false);
-    expect(summarizeClient(l, client, "2026-08-11").archivable).toBe(true);
+  it("refuses a line without a price or with a bad id, and a sale with no line", () => {
+    expect(applyOp(shop(), op({ type: "sale.add", lines: [] })).result).toBe("invalid");
+    expect(applyOp(shop(), op({ type: "sale.add", lines: [line("X-1")] })).result).toBe("invalid");
+    expect(applyOp(shop(), op({ type: "sale.add", lines: [line("V-TICKET01", { sellPrice: -1 })] })).result).toBe("invalid");
   });
 });
 
 describe("operations are safe to repeat and to delay", () => {
   it("skips an operation sent twice", () => {
-    const add = op({ type: "payment.add", payment: pay("P-PAY00009", "2026-05-01", 500) });
-    const once = applyOp(example(), add);
+    const add = op({ type: "sale.add", lines: [line("V-TICKET01")] });
+    const once = applyOp(shop(), add);
     const twice = applyOp(once.ledger, add);
     expect([once.result, twice.result]).toEqual(["ok", "already"]);
-    expect(twice.ledger.payments.filter((p) => p.id === "P-PAY00009")).toHaveLength(1);
+    expect(twice.ledger.stock[0].quantity).toBe(8);
   });
 
   it("refuses an edit made on an old version, but accepts its own retry", () => {
-    const l = example();
-    const base = l.clients[0].updatedAt;
-    const edit = op({ type: "client.update", id: client.id, base, patch: { phone: "0700000000" } });
+    const l = shop();
+    const base = l.stock[0].updatedAt;
+    const edit = op({ type: "stock.update", id: charger.id, base, patch: { sellPrice: 90 } });
     const r1 = applyOp(l, edit);
     expect(applyOp(r1.ledger, edit).result).toBe("already");
-    const stale = op({ type: "client.update", id: client.id, base, patch: { name: "آخر" } });
+    const stale = op({ type: "stock.update", id: charger.id, base, patch: { item: "آخر" } });
     expect(applyOp(r1.ledger, stale).result).toBe("conflict");
   });
 
-  it("moves a payment recorded on the wrong customer", () => {
-    const other: Client = { ...client, id: "C-BBBB2222", name: "سعاد اخت سمير" };
-    let l = applyOp(example(), op({ type: "client.add", client: other })).ledger;
-    const wrong = l.payments.find((p) => p.id === "P-PAY00004")!;
-    const r = applyOp(l, op({ type: "payment.update", id: wrong.id, base: wrong.updatedAt, patch: { clientId: other.id, purchaseId: fridge.id } }));
-    expect(r.result).toBe("ok");
-    l = r.ledger;
-    const moved = l.payments.find((p) => p.id === wrong.id)!;
-    // The fridge belongs to the first customer: the moved payment becomes general.
-    expect(moved).toMatchObject({ clientId: other.id, purchaseId: "" });
-    expect(summarizeClient(l, client, "2026-04-20").remaining).toBe(3000);
-    expect(summarizeClient(l, other, "2026-04-20").paid).toBe(1000);
-  });
-
-  it("refuses bad data and deleting a customer who has a history", () => {
-    expect(applyOp(EMPTY_LEDGER, op({ type: "client.add", client: { ...client, name: " " } })).result).toBe("invalid");
-    expect(applyOp(example(), op({ type: "payment.add", payment: { ...pay("P-PAY00010", "2026-05-01", -5) } })).result).toBe("invalid");
-    expect(applyOp(example(), op({ type: "client.update", id: client.id, base: example().clients[0].updatedAt, patch: { installment: 1 } as never })).ledger.clients[0].installment).toBe(1000);
-    expect(applyOp(example(), op({ type: "client.delete", id: client.id })).result).toBe("invalid");
-  });
-
-  it("keeps payments when their purchase is deleted", () => {
-    const l = applyOp(example(), op({ type: "purchase.delete", id: washer.id })).ledger;
-    expect(l.payments.find((p) => p.id === "P-PAY00005")!.purchaseId).toBe("");
+  it("a code leads to one product only", () => {
+    const other: StockItem = { ...charger, id: "I-OTHER001", item: "كابل", serial: "6111111111111" };
+    expect(applyOp(shop(), op({ type: "stock.add", item: other })).result).toBe("invalid");
   });
 
   it("makes readable unique ids", () => {
-    const id = newLedgerId("C");
+    const id = newLedgerId("V");
     expect(isLedgerId(id)).toBe(true);
-    expect(id).toMatch(/^C-[A-Z2-9]{8}$/);
+    expect(id).toMatch(/^V-[A-Z2-9]{8}$/);
+    expect(isLedgerId("C-AAAA1111")).toBe(false);
   });
 });
 
-describe("next due date after a payment", () => {
-  const monthly = (nextDueDate: string) => ({ ...client, period: "شهر", nextDueDate });
-
-  it("counts a late customer from the due date that was set, not from the payment day", () => {
-    // Due 31/10, monthly, came on 10/11 → 30/11 (one month after 31/10), not 10/12.
-    expect(suggestNextDue(monthly("2026-10-31"), "2026-11-10")).toBe("2026-11-30");
-  });
-
-  it("never goes past the payment day + the agreed period", () => {
-    // Paid early, on 10/11, while due 31/12: one month after the payment at most.
-    expect(latestNextDue(monthly("2026-12-31"), "2026-11-10")).toBe("2026-12-10");
-    expect(suggestNextDue(monthly("2026-12-31"), "2026-11-10")).toBe("2026-12-10");
-  });
-
-  it("paid on the due date: one period later", () => {
-    expect(suggestNextDue(monthly("2026-11-10"), "2026-11-10")).toBe("2026-12-10");
-    expect(suggestNextDue({ ...client, period: "سيمانة", nextDueDate: "2026-11-01" }, "2026-11-05")).toBe("2026-11-08");
-  });
-
-  it("never before the payment day, even for a customer late by several periods", () => {
-    // Due 31/08, monthly, came on 10/11: 30/09 and 31/10 are already past → 30/11.
-    expect(suggestNextDue(monthly("2026-08-31"), "2026-11-10")).toBe("2026-11-30");
-    // Due 10/10, paid 10/11: 10/11 would be today → 10/12.
-    expect(suggestNextDue(monthly("2026-10-10"), "2026-11-10")).toBe("2026-12-10");
-  });
-
-  it("no limit when the dates are set by hand", () => {
-    const manual = { ...client, period: "", nextDueDate: "2027-03-01" };
-    expect(latestNextDue(manual, "2026-11-10")).toBe("");
-    expect(suggestNextDue(manual, "2026-11-10")).toBe("2027-03-01");
-  });
-});
-
-describe("receipts", () => {
-  it("prints a payment with the account as it was that day", () => {
-    const s = summarizeClient(example(), client, "2026-04-20");
-    const r = paymentReceipt(s, s.payments.find((p) => p.id === "P-PAY00002")!);
-    expect(r).toMatchObject({ number: "P-PAY00002", date: "10/02/2026 - 10:00", amount: 1000, total: 6000, paidToDate: 3000, remaining: 3000, nextDueDate: "" });
-    const last = paymentReceipt(s, s.payments.find((p) => p.id === "P-PAY00005")!);
-    expect(last).toMatchObject({ item: "ماشينة الصابون", label: "تسبيق", total: 8500, paidToDate: 6500, remaining: 2000, nextDueDate: "2026-05-10" });
-    // Every item not fully paid yet, with what is left on it.
-    expect(last.unpaid).toEqual([
-      { date: "10/01/2026", item: "ثلاجة", price: 6000, remaining: 1000 },
-      { date: "15/04/2026", item: "ماشينة الصابون", price: 2500, remaining: 1000 },
-    ]);
-    // An older receipt shows the items as they were that day (the washer wasn't bought yet).
-    expect(r.unpaid).toEqual([{ date: "10/01/2026", item: "ثلاجة", price: 6000, remaining: 3000 }]);
-  });
-
-  it("prepares the WhatsApp messages with the same content", () => {
-    const s = summarizeClient(example(), client, "2026-04-20");
-    const msg = paymentMessage(paymentReceipt(s, s.payments.find((p) => p.id === "P-PAY00005")!));
-    expect(msg).toContain("✅ توصلنا منكم بـ *1.500 درهم* بتاريخ 15/04/2026 - 10:00 (ماشينة الصابون)");
-    expect(msg).toContain("🧾 رقم الوصل: P-PAY00005");
-    expect(msg).toContain("⏳ المتبقي: *2.000 درهم*");
-    expect(msg).toContain("▪️ ثلاجة: باقي 1.000 درهم\n▪️ ماشينة الصابون: باقي 1.000 درهم");
-    expect(msg).toContain("📅 الدفعة المقبلة: 10/05/2026");
-  });
-
-  it("sends the whole account on WhatsApp with every purchase and payment", () => {
-    const s = summarizeClient(example(), client, "2026-04-20");
-    // Printing only the last payments doesn't shorten the WhatsApp summary.
-    const msg = statementMessage(statement(s, "20/04/2026 - 12:00", 3));
-    if (process.env.SHOW_MESSAGE) console.log(msg);
-    expect(msg).toContain("🛒 *1. ثلاجة*\n📅 تاريخ الشرا: 10/01/2026\n💰 الثمن: 6.000 درهم");
-    expect(msg).toContain("💵 الدفعات ديالها:\n   ▪️ 10/01/2026 - 10:00 · تسبيق: *2.000 درهم*");
-    // General payments are listed under the item they paid.
-    expect(msg).toContain("   ▪️ 10/04/2026 - 10:00 · دفعة: *1.000 درهم* (دفعة عامة)\n✔️ تخلص منها: 5.000 درهم · ⏳ باقي: *1.000 درهم*");
-    expect(msg).toContain("🛒 *2. ماشينة الصابون*");
-    expect(msg).not.toContain("من الدفعات العامة");
-    expect(msg).not.toContain("زيادة على الحساب");
-    expect(msg).toContain("💵 المدفوع: 6.500 درهم (5 دفعات)");
-    expect(msg).toContain("⏳ المتبقي: *2.000 درهم*");
-  });
-
-  it("opens the customer's chat with the message typed, only for a usable number", () => {
-    const link = whatsappLink("06 61 23 45 67", "سلام\nشكراً");
-    expect(link).toBe("https://api.whatsapp.com/send?phone=212661234567&text=%D8%B3%D9%84%D8%A7%D9%85%0A%D8%B4%D9%83%D8%B1%D8%A7%D9%8B");
-    expect(whatsappLink("0661234567", "x", "web")).toBe("https://web.whatsapp.com/send?phone=212661234567&text=x");
-    expect(whatsappLink("123", "x")).toBeNull();
-    expect(whatsappLink("", "x")).toBeNull();
-  });
-
-  it("keeps the emojis intact in the link", () => {
-    // 🧾 is outside the basic plane: it must be sent as its 4 UTF-8 bytes, not as "?" or "�".
-    expect(whatsappLink("0661234567", "🧾")).toBe("https://api.whatsapp.com/send?phone=212661234567&text=%F0%9F%A7%BE");
-  });
-
-  it("lists nothing left to pay once everything is paid", () => {
-    const l = applyOp(example(), op({ type: "payment.add", payment: pay("P-PAY00007", "2026-05-10", 2000) })).ledger;
-    const s = summarizeClient(l, client, "2026-05-10");
-    expect(paymentReceipt(s, s.payments.find((p) => p.id === "P-PAY00007")!).unpaid).toEqual([]);
-  });
-
-  it("prints the whole account, optionally only the last payments", () => {
-    const s = summarizeClient(example(), client, "2026-04-20");
-    const st = statement(s, "20/04/2026 - 12:00", 3);
-    expect(st.items).toEqual([
-      { date: "10/01/2026", item: "ثلاجة", price: 6000, remaining: 1000 },
-      { date: "15/04/2026", item: "ماشينة الصابون", price: 2500, remaining: 1000 },
-    ]);
-    expect(st.payments).toHaveLength(3);
-    expect(st).toMatchObject({ hiddenPayments: 2, hiddenTotal: 3000, total: 8500, paid: 6500, remaining: 2000, installment: "1000 درهم (كل شهر)" });
+describe("cash drawer closing", () => {
+  const close: CaisseClose = {
+    id: "K-CLOSE001", date: "2026-01-10", time: "20:00", clerk: "", cashSales: 150, expenses: 20, expensesNote: "قهوة",
+    expected: 130, counted: 125, notes: "", createdAt: T0,
+  };
+  it("is saved once, with its numbers checked", () => {
+    const r = applyOp(EMPTY_LEDGER, op({ type: "caisse.close", close }));
+    expect(r.result).toBe("ok");
+    expect(applyOp(r.ledger, op({ type: "caisse.close", close })).result).toBe("already");
+    expect(applyOp(EMPTY_LEDGER, op({ type: "caisse.close", close: { ...close, id: "K-CLOSE002", expenses: -1 } })).result).toBe("invalid");
   });
 });
 
 describe("sheet layout", () => {
   it("writes and reads back the same ledger", () => {
-    const l = example();
-    const rows = ledgerToRows(l, "2026-04-20");
-    const back = rowsToLedger({
-      clients: [...rows.clients.values()],
-      purchases: [...rows.purchases.values()],
-      payments: [...rows.payments.values()],
-      changes: [...rows.changes.values()],
-    });
-    expect(back).toEqual(l);
-    expect(rows.clients.get(client.id)!.slice(7, 11)).toEqual([8500, 6500, 2000, "2026-04-15"]);
-    expect(rows.payments.get("P-PAY00005")![8]).toBe("ماشينة الصابون");
-    expect(sameRow(["P-1", "500"], ["P-1", 500])).toBe(true);
-    expect(TABS.clients).toBe("الزبناء");
-  });
-
-  it("keeps a customer's other numbers in their own column", () => {
-    const start = example();
-    const base = start.clients.find((c) => c.id === client.id)!.updatedAt;
-    const done = applyOp(start, op({ type: "client.update", id: client.id, base, patch: { phones: ["0662000000", "0522 11 22 33"] } }));
-    expect(done.result).toBe("ok");
-    const l = done.ledger;
-    const row = ledgerToRows(l, "2026-04-20").clients.get(client.id)!;
-    expect(HEADERS.clients[13]).toBe("أرقام أخرى");
-    expect(row[13]).toBe("0662000000\n0522 11 22 33");
-    const back = rowsToLedger({ clients: [row], purchases: [], payments: [], changes: [] }).clients[0];
-    expect(back.phones).toEqual(["0662000000", "0522 11 22 33"]);
-    expect(clientPhones(back)).toEqual(["0661234567", "0662000000", "0522 11 22 33"]);
-    // Bad lists are refused.
-    expect(applyOp(start, op({ type: "client.update", id: client.id, base, patch: { phones: ["a\nb"] } })).result).toBe("invalid");
-    expect(applyOp(start, op({ type: "client.update", id: client.id, base, patch: { phones: Array(11).fill("0661") } })).result).toBe("invalid");
-  });
-
-  it("finds a customer by any of their numbers", () => {
-    expect(matchesClient("Ahmed", ["0661234567", "0662998877"], "998877")).toBe(true);
-    expect(matchesClient("Ahmed", ["0661234567"], "998877")).toBe(false);
-    expect(matchesClient("Ahmed", "0661234567", "234567")).toBe(true);
+    const close: CaisseClose = { id: "K-CLOSE001", date: "2026-01-10", time: "20:00", clerk: "Said", cashSales: 150, expenses: 0, expensesNote: "", expected: 150, counted: null, notes: "", createdAt: T0 };
+    const l = applyOps(shop(), [
+      op({ type: "sale.add", lines: [line("V-TICKET01", { seller: "Said" })] }),
+      op({ type: "caisse.close", close }),
+      op({ type: "setting.save", key: "sticker-look", value: "{}" }),
+    ]);
+    const rows = ledgerToRows(l);
+    const tables = Object.fromEntries(Object.entries(rows).map(([k, m]) => [k, [...m.values()]])) as Record<TableKey, unknown[][]>;
+    expect(rowsToLedger(tables)).toEqual(l);
+    // Profit is written next to the price; each row has as many cells as titles.
+    expect(rows.sales.get("V-TICKET01")![11]).toBe(70);
+    for (const k of Object.keys(TABS) as TableKey[]) for (const r of rows[k].values()) expect(r.length).toBe(HEADERS[k].length);
+    expect(sameRow(["V-1", "500"], ["V-1", 500])).toBe(true);
+    expect(TABS.sales).toBe("المبيعات");
   });
 
   it("reads dates and times typed by hand in the sheet", () => {
-    const p = rowsToLedger({ clients: [], purchases: [], payments: [["P-X1234", "C-AAAA1111", "", 46323, 0.5, "1000", "دفعة"]], changes: [] }).payments[0];
-    expect(p).toMatchObject({ date: "2026-10-28", time: "12:00", amount: 1000 });
+    const s = rowsToLedger({ sales: [["V-X1234", "", 46323, 0.5, "شارجور", "", "", 1, "", 80, 80]] }).sales[0];
+    expect(s).toMatchObject({ date: "2026-10-28", time: "12:00", sellPrice: 80, buyPrice: null, ticket: "V-X1234" });
   });
 });
 
-describe("migration from Feuille 1", () => {
-  const old = (over: Record<number, string>) => Object.assign(new Array(17).fill(""), over);
-  it("splits items and payments of the old single row", () => {
-    const l = migrateOldRows([
-      old({ 0: "Ahmed", 1: "0661234567", 2: "TV (01/03/2026 - 10:00) + Frigo (05/06/2026 - 11:30)", 3: "4500+6000", 4: "3500+4800", 6: "1000 (01/03/2026 - 10:00) + 500 (01/04/2026 - 18:05) + 2000 (05/06/2026 - 11:30)", 8: "شهر", 9: "2026-11-05", 13: "800" }),
-      old({ 0: "Karim", 2: "Four", 3: "1000", 6: "0", 13: "حسب الاتفاق" }),
-      old({}),
-    ]);
-    expect(l.clients.map((c) => [c.name, c.installment, c.nextDueDate, c.notes])).toEqual([
-      ["Ahmed", 800, "2026-11-05", ""],
-      ["Karim", 0, "", "الطريطة: حسب الاتفاق"],
-    ]);
-    expect(l.purchases.map((p) => [p.item, p.date, p.price])).toEqual([
-      ["TV", "2026-03-01", 4500],
-      ["Frigo", "2026-06-05", 6000],
-      ["Four", expect.any(String), 1000],
-    ]);
-    // The old buying price (column E) is not carried over.
-    expect(l.purchases.every((p) => !("cost" in p))).toBe(true);
-    expect(l.payments.map((p) => [p.date, p.time, p.amount, p.kind, p.purchaseId === l.purchases[0].id])).toEqual([
-      ["2026-03-01", "10:00", 1000, "تسبيق", true],
-      ["2026-04-01", "18:05", 500, "دفعة", false],
-      ["2026-06-05", "11:30", 2000, "دفعة", false],
-    ]);
-    const s = summarizeClient(l, l.clients[0], "2026-10-30");
-    expect([s.total, s.paid, s.remaining]).toEqual([10500, 3500, 7000]);
-  });
-
-  it("keeps a row whose prices don't match its items as one purchase", () => {
-    const l = migrateOldRows([old({ 0: "Salma", 2: "Machine + Four", 3: "6000", 6: "2000" })]);
-    expect(l.purchases).toHaveLength(1);
-    expect(l.purchases[0]).toMatchObject({ item: "Machine + Four", price: 6000 });
-  });
-
-describe("a payment bigger than what is left on its product", () => {
-  // The case from the shop: honey 150 (100 already paid), fridge 6000 (1500 paid), then 500 on the honey.
-  const P = (id: string, date: string, item: string, price: number) => ({ id, clientId: "C-1", date, item, price, notes: "", createdAt: "", updatedAt: "" });
-  const Pay = (id: string, purchaseId: string, date: string, amount: number) => ({ id, clientId: "C-1", purchaseId, date, time: "10:00", amount, kind: "دفعة" as const, notes: "", createdAt: "", updatedAt: "" });
-  const honey = P("S-HONEY1", "2026-09-01", "عسل حر أعشاب 500g", 150);
-  const fridge = P("S-FRIDGE1", "2026-09-05", "Frigerateur Candy", 6000);
-  const before = [Pay("P-AAAA1", "S-HONEY1", "2026-10-01", 100), Pay("P-BBBB1", "S-FRIDGE1", "2026-10-01", 1500)];
-  const now = Pay("P-CCCC1", "S-HONEY1", "2026-11-06", 500);
-
-  it("pays the product off and puts the rest on the next unpaid product", () => {
-    const items = itemStatuses([honey, fridge], [...before, now]);
-    expect(items.map((i) => [i.purchase.item, i.paid, i.remaining])).toEqual([
-      ["عسل حر أعشاب 500g", 150, 0],
-      ["Frigerateur Candy", 1950, 4050],
-    ]);
-  });
-
-  it("tells how the payment was split", () => {
-    expect(paymentSplit([honey, fridge], before, now).map((x) => [x.purchase.item, x.amount])).toEqual([
-      ["عسل حر أعشاب 500g", 50],
-      ["Frigerateur Candy", 450],
-    ]);
-  });
-
-  it("a payment that fits its product stays on it", () => {
-    expect(paymentSplit([honey, fridge], before, Pay("P-DDDD1", "S-HONEY1", "2026-11-06", 50)).map((x) => [x.purchase.item, x.amount])).toEqual([["عسل حر أعشاب 500g", 50]]);
-  });
-});
-
-describe("the WhatsApp message after a payment bigger than its product", () => {
-  it("says how it was split and what is left on each product", () => {
-    const honey: Purchase = { id: "S-HONEY001", clientId: client.id, date: "2026-01-05", item: "عسل حر أعشاب 500g", price: 150, notes: "", createdAt: T0, updatedAt: T0 };
-    const l = applyOps(EMPTY_LEDGER, [
-      op({ type: "client.add", client }),
-      op({ type: "purchase.add", purchase: honey }),
-      op({ type: "purchase.add", purchase: fridge }),
-      op({ type: "payment.add", payment: pay("P-PAYHON01", "2026-01-20", 100, honey.id) }),
-      op({ type: "payment.add", payment: pay("P-PAYFRI01", "2026-02-10", 1500, fridge.id) }),
-      op({ type: "payment.add", payment: pay("P-PAYHON02", "2026-03-10", 500, honey.id) }),
-    ]);
-    const s = summarizeClient(l, client, "2026-03-10");
-    const msg = paymentMessage(paymentReceipt(s, s.payments.find((p) => p.id === "P-PAYHON02")!));
-    expect(msg).toContain("(عسل حر أعشاب 500g: 50 درهم · ثلاجة: 450 درهم)");
-    expect(msg).toContain("▪️ ثلاجة: باقي 4.050 درهم");
-    expect(msg).not.toContain("عسل حر أعشاب 500g: باقي");
-  });
-});
-
-describe("the whole-account message when a payment paid more than its product", () => {
-  // The shop's case: vivo y19 1480 (500 + 500 + 200, then 500 on 07/11), cable 40, redmi 1590 bought 07/11.
-  it("lists under each product only what the payment paid on it", () => {
-    const P = (id: string, date: string, item: string, price: number): Purchase => ({ id, clientId: client.id, date, item, price, notes: "", createdAt: T0, updatedAt: T0 });
-    const vivo = P("S-VIVO0001", "2026-11-03", "vivo y19", 1480);
-    const cable = P("S-CABLE001", "2026-11-03", "cable t-c", 40);
-    const redmi = P("S-REDMI001", "2026-11-07", "redmi 15C", 1590);
-    const at = (id: string, date: string, time: string, amount: number, purchaseId: string, kind: Payment["kind"] = "دفعة") => ({ ...pay(id, date, amount, purchaseId, kind), time });
-    const l = applyOps(EMPTY_LEDGER, [
-      op({ type: "client.add", client }),
-      op({ type: "purchase.add", purchase: vivo }),
-      op({ type: "purchase.add", purchase: cable }),
-      op({ type: "payment.add", payment: at("P-VIVO0001", "2026-11-03", "11:13", 500, vivo.id, "تسبيق") }),
-      op({ type: "payment.add", payment: at("P-VIVO0002", "2026-11-03", "11:13", 500, vivo.id) }),
-      op({ type: "payment.add", payment: at("P-CABL0001", "2026-11-03", "11:14", 40, cable.id) }),
-      op({ type: "payment.add", payment: at("P-VIVO0003", "2026-11-03", "11:14", 200, vivo.id) }),
-      op({ type: "purchase.add", purchase: redmi }),
-      op({ type: "payment.add", payment: at("P-VIVO0004", "2026-11-07", "09:33", 500, vivo.id) }),
-    ]);
-    const msg = statementMessage(statement(summarizeClient(l, client, "2026-11-08"), "08/11/2026 - 10:00"));
-    if (process.env.SHOW_MESSAGE) console.log(msg);
-    expect(msg).toContain("   ▪️ 07/11/2026 - 09:33 · دفعة: *280 درهم* (من 500 درهم)\n✅ خالصة (1.480 درهم)");
-    expect(msg).toContain("💵 الدفعات ديالها:\n   ▪️ 07/11/2026 - 09:33 · دفعة: *220 درهم* (من 500 درهم · الباقي من دفعة «vivo y19»)\n✔️ تخلص منها: 220 درهم · ⏳ باقي: *1.370 درهم*");
-    expect(msg).not.toContain("من الدفعات العامة");
+describe("WhatsApp links", () => {
+  it("opens the chat with the message typed, only for a usable number", () => {
+    expect(whatsappLink("0661234567", "سلام 👋")).toBe(`https://api.whatsapp.com/send?phone=212661234567&text=${encodeURIComponent("سلام 👋")}`);
+    expect(whatsappLink("123", "x")).toBeNull();
   });
 });
 
@@ -414,12 +131,11 @@ describe("shop settings (the default sticker look)", () => {
     expect(l.settings[0]).toMatchObject({ key: "sticker-look", value: '{"priceSize":20}' });
     l = applyOp(l, op({ type: "setting.save", key: "sticker-look", value: '{"priceSize":18}' })).ledger;
     expect(l.settings.map((x) => x.value)).toEqual(['{"priceSize":18}']);
-    const rows = ledgerToRows(l, "2026-11-08");
+    const rows = ledgerToRows(l);
     expect(rowsToLedger({ settings: [...rows.settings.values()] }).settings).toEqual(l.settings);
   });
   it("refuses a bad key or a value too big", () => {
     expect(applyOp(EMPTY_LEDGER, op({ type: "setting.save", key: "Bad Key!", value: "{}" })).result).toBe("invalid");
     expect(applyOp(EMPTY_LEDGER, op({ type: "setting.save", key: "sticker-look", value: "x".repeat(20_001) })).result).toBe("invalid");
   });
-});
 });

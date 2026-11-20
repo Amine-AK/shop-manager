@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-// Owner: hide a total (credit, stock value, sales, profit) when customers can
+// Owner: hide a total (stock value, sales, profit) when customers can
 // see the screen. Remembered per total on this device.
 
 const MASK = "•••••";
