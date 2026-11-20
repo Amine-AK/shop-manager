@@ -1,5 +1,6 @@
 import "server-only";
 import { ConfigError } from "./config-error";
+import { explainServerError } from "./server-error";
 import { SheetsError } from "./sheets";
 
 export function jsonError(message: string, status: number, extra: Record<string, unknown> = {}) {
@@ -36,5 +37,7 @@ export function handleError(e: unknown) {
   if (e instanceof ConfigError) {
     return jsonError(`ناقص الإعداد ${e.variable} فالسيرفر (Vercel > Settings > Environment Variables، ومن بعد Redeploy).`, 500);
   }
+  const known = explainServerError(e);
+  if (known) return jsonError(known, 500);
   return jsonError("وقع مشكل في السيرفر.", 500);
 }
