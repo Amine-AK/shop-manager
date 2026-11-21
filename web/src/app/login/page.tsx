@@ -35,7 +35,7 @@ export default function LoginPage() {
         <span className="brand-mark big" aria-hidden="true">
           ⚡
         </span>
-        <h1>ELECTRO-LMESTOUR</h1>
+        <h1>Shop manager</h1>
         <p className="muted">البيع والمخزون</p>
         <div className="field">
           <label htmlFor="login">اسم الدخول</label>

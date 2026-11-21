@@ -162,7 +162,7 @@ export function Dashboard() {
             ⚡
           </span>
           <div>
-            <h1>ELECTRO-LMESTOUR</h1>
+            <h1>Shop manager</h1>
             <p className="muted">البيع والمخزون</p>
           </div>
         </div>

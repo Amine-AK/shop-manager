@@ -155,9 +155,10 @@ UI calls data.run(label, ...ops)  →  op queued, applied locally (optimistic), 
 1. Strip credit / archive / reminders / repairs / claims / old tools. **Done.**
 2. Generalise: shop settings (name, logo, phone, address, ICE, currency, ticket
    header / footer, WhatsApp backup number), i18n ar / fr (`src/i18n/*`, `t()`),
-   starter categories per shop type. Until then the shop name / phone are still
-   hard-coded (`SHOP` in `lib/receipt.ts`, `BACKUP_PHONE` in `lib/backup.ts`,
-   `manifest.ts`, `layout.tsx`, `Dashboard.tsx`, `login/page.tsx`).
+   starter categories per shop type. The app itself is named «Shop manager»
+   (header, login, page title, manifest, notifications); the shop's own name /
+   phone are still hard-coded (`SHOP` in `lib/receipt.ts` for the ticket,
+   `BACKUP_PHONE` and the backup message in `lib/backup.ts`).
 3. Multi-shop: registry sheet, login with shop code, `/signup`, read-only on
    expiry, admin page.
 4. Polish: owners' README (Darija + French), demo seed, screenshots checklist.

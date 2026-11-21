@@ -3,9 +3,9 @@ import type { MetadataRoute } from "next";
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: "/",
-    name: "ELECTRO-LMESTOUR · المحل",
-    short_name: "المحل",
-    description: "البيع والمخزون ديال ELECTRO-LMESTOUR",
+    name: "Shop manager",
+    short_name: "Shop manager",
+    description: "Shop manager: البيع والمخزون",
     start_url: "/",
     scope: "/",
     display: "standalone",

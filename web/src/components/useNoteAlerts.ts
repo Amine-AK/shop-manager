@@ -87,7 +87,7 @@ export function useNoteAlerts(data: LedgerState, onToast: (msg: string) => void,
     const text = fresh.length === 1 ? eventText(fresh[0]) : `📝 ${fresh.length} حوايج جداد فالكناش · ${eventText(fresh[0])}`;
     if (!onNotebook) onToast(text);
     if (typeof document !== "undefined" && document.visibilityState === "hidden" && permissionNow() === "granted") {
-      void showSystem("📝 الكناش · ELECTRO-LMESTOUR", text);
+      void showSystem("📝 الكناش · Shop manager", text);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notes, seen]);
@@ -139,7 +139,7 @@ export function useNoteReminders(data: LedgerState, now: Date, onToast: (msg: st
     const text = `⏰ تذكير: ${n.text.length > 80 ? `${n.text.slice(0, 80)}…` : n.text}${n.customer ? ` · 👤 ${n.customer}` : ""}${fresh.length > 1 ? ` (+${fresh.length - 1})` : ""}`;
     if (!onNotebook) onToast(text);
     if (typeof document !== "undefined" && document.visibilityState === "hidden" && permissionNow() === "granted") {
-      void showSystem("⏰ تذكير · ELECTRO-LMESTOUR", text, `remind-${n.id}`);
+      void showSystem("⏰ تذكير · Shop manager", text, `remind-${n.id}`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [keys, Boolean(data.ledger)]);

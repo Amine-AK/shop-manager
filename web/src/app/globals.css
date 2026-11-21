@@ -206,8 +206,11 @@ button, input, select { font: inherit; color: inherit; }
 
 .menu-wrap { position: relative; }
 .menu-btn { font-size: 18px; }
+/* The ⚙️ menu pops up over every other part of the app. Its z-index only counts
+   inside the header's stacking context, so the header is raised too while it is open. */
+.topbar:has(.menu) { z-index: 999999; }
 .menu {
-  position: absolute; z-index: 20; inset-inline-end: 0; top: calc(100% + 6px);
+  position: absolute; z-index: 999999; inset-inline-end: 0; top: calc(100% + 6px);
   width: min(290px, calc(100vw - 24px)); padding: 6px; display: grid; gap: 2px;
   background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
   box-shadow: 0 12px 32px rgb(0 0 0 / 18%);

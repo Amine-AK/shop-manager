@@ -12,10 +12,10 @@ const plex = IBM_Plex_Sans_Arabic({
 });
 
 export const metadata: Metadata = {
-  title: "ELECTRO-LMESTOUR · المحل",
-  description: "البيع والمخزون ديال ELECTRO-LMESTOUR",
-  applicationName: "ELECTRO-LMESTOUR",
-  appleWebApp: { capable: true, title: "المحل", statusBarStyle: "default" },
+  title: "Shop manager",
+  description: "Shop manager: البيع والمخزون",
+  applicationName: "Shop manager",
+  appleWebApp: { capable: true, title: "Shop manager", statusBarStyle: "default" },
   icons: {
     icon: [{ url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],
     apple: "/icons/apple-touch-icon.png",
